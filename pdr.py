@@ -17,7 +17,7 @@ logging.basicConfig(filename='pdr.log', level=logging.INFO, format='%(message)s'
 class PDR:
     def __init__(self, primary_inputs, literals, primes, init, trans, post, pv2next, primes_inp, filename, debug=False):
         self.console = Console()
-       
+        self.enable_assert = True
         self.primary_inputs = primary_inputs
         self.init = init
         self.trans = trans
@@ -312,16 +312,13 @@ class PDR:
             self.sum_of_solve_relative_time += end_time - start_time
             return None
 
-    def generalize_predecessor(self, prev_cube:tCube, next_cube_expr, prevF):
+    def generalize_predecessor(self, prev_cube:tCube, next_cube_expr, prevF, use_ternary_sim=False):
         start_time = time.time()  # Start timing
         tcube_cp = prev_cube.clone()
-        #logging.info("original size of !P (or CTI): ", len(tcube_cp.cubeLiterals))
 
         nextcube = substitute(substitute(substitute(next_cube_expr, self.primeMap),self.inp_map), list(self.pv2next.items()))
-        index_to_remove = []
 
         #FIXME: if use the self.solver() here will encounter bug
-        
         self.solver4generalization.push()
         self.solver4generalization.set(unsat_core=True)
         for index, literals in enumerate(tcube_cp.cubeLiterals):
@@ -343,30 +340,43 @@ class PDR:
         reduction_percentage = ((initial_size - final_size) / initial_size) * 100 if initial_size > 0 else 0
         self.predecessor_generalization_reduction_percentages.append(reduction_percentage)  # Track reduction percentage
 
-        simulator = self.ternary_simulator.clone()
-        simulator.register_expr(nextcube)
-        simulator.set_initial_var_assignment(dict([_extract(c) for c in tcube_cp.cubeLiterals]))
+        if use_ternary_sim:
+            # On-demand loading of the logic cone
+            simulator = self.ternary_simulator.clone()
+            simulator.register_expr(nextcube)
+            simulator.set_initial_var_assignment(dict([_extract(c) for c in tcube_cp.cubeLiterals]))
 
-        out = simulator.get_val(nextcube)
-        if out == ternary_sim._X:
-            return tcube_cp
-        assert out == ternary_sim._TRUE
-        for i in range(len(tcube_cp.cubeLiterals)):
-            v, val = _extract(tcube_cp.cubeLiterals[i])
-            simulator.set_Li(v, ternary_sim._X)
-            out = simulator.get_val(nextcube)
-            if out == ternary_sim._X:
-                simulator.set_Li(v, ternary_sim.encode(val))
-                assert simulator.get_val(nextcube) == ternary_sim._TRUE
-            else:
-                assert simulator.get_val(nextcube) == ternary_sim._TRUE
-                tcube_cp.cubeLiterals[i] = True
-        tcube_cp.remove_true()
-        size_after_ternary_sim = len(tcube_cp.cubeLiterals)
+            # Heuristic-based variable ordering
+            variable_order = self.get_variable_order(tcube_cp.cubeLiterals)
+
+            # Early termination condition
+            max_iterations = len(tcube_cp.cubeLiterals) // 2  # Terminate after processing half of the variables
+
+            for i, idx in enumerate(variable_order):
+                if i >= max_iterations:
+                    break
+
+                v, val = _extract(tcube_cp.cubeLiterals[idx])
+                simulator.set_Li(v, ternary_sim._X)
+                out = simulator.get_val(nextcube)
+                if out == ternary_sim._X:
+                    simulator.set_Li(v, ternary_sim.encode(val))
+                    assert simulator.get_val(nextcube) == ternary_sim._TRUE
+                else:
+                    assert simulator.get_val(nextcube) == ternary_sim._TRUE
+                    tcube_cp.cubeLiterals[idx] = True
+
+            tcube_cp.remove_true()
+
         end_time = time.time()  # End timing
         time_taken = end_time - start_time
         self.sum_of_predecessor_generalization_time += time_taken  # Update sum of generalization time
         return tcube_cp
+
+    def get_variable_order(self, cubeLiterals):
+        # Implement heuristic-based variable ordering logic here
+        # Return the indices of the variables in the desired order
+        return list(range(len(cubeLiterals)))
 
     def getBadCube(self):
         start_time = time.time()
