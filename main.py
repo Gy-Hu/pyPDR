@@ -30,7 +30,7 @@ if __name__ == '__main__':
         file = args.fileName
         m = model.Model()
 
-        print("============= Running test ===========")
+        #print("============= Running test ===========")
 
         # Not using RL
         solver = pdr.PDR(*m.parse(file))

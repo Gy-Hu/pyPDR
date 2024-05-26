@@ -224,7 +224,7 @@ class AIGBuffer(object):
 
         for v,vid in self.vname_to_vid.items():
             val = self.item_assignments[vid]
-            print ('var:',v, ' = ', decode(val))
+            #print ('var:',v, ' = ', decode(val))
             z3var = self.item_to_expr[vid]
             ToConstraint(v=z3var,val=val, solver=s)
 

@@ -4,9 +4,17 @@ import ternary_sim
 from cube_manager import tCube, _extract
 from frame_manager import Frame
 from sanity_checker import SanityChecker
+from rich.console import Console
+from rich.table import Table
+from rich.panel import Panel
+from rich.live import Live
+import logging
+
+logging.basicConfig(filename='pdr.log', level=logging.INFO, format='%(message)s')
 
 class PDR:
-    def __init__(self, primary_inputs, literals, primes, init, trans, post, pv2next, primes_inp, filename, debug=True):
+    def __init__(self, primary_inputs, literals, primes, init, trans, post, pv2next, primes_inp, filename, debug=False):
+        self.console = Console()
         self.primary_inputs = primary_inputs
         self.init = init
         self.trans = trans
@@ -25,6 +33,7 @@ class PDR:
         for _, updatefun in self.pv2next.items():
             self.ternary_simulator.register_expr(updatefun)
         self.filename = filename
+        self.status = "Running..."
 
     def check_init(self):
         s = Solver()
@@ -36,7 +45,7 @@ class PDR:
         s = Solver()
         s.add(self.init.cube())
         s.add(self.trans.cube())
-        s.add(substitute(substitute(Not(self.post.cube()), self.primeMap),self.inp_map))
+        s.add(substitute(substitute(Not(self.post.cube()), self.primeMap), self.inp_map))
         res2 = s.check()
         if res2 == sat:
             return False
@@ -44,46 +53,64 @@ class PDR:
 
     def run(self):
         if not self.check_init():
-            print("Found trace ending in bad state")
+            self.status = "Found trace ending in bad state"
             return False
 
         self.frames = list()
         self.frames.append(Frame(lemmas=[self.init.cube()]))
         self.frames.append(Frame(lemmas=[self.post.cube()]))
+        
+        try:
+            with Live(self.get_table(), console=self.console, screen=True, refresh_per_second=2) as live:
+                while True:
+                    live.update(self.get_table())
 
-        while True:
-            c = self.getBadCube()
-            if c is not None:
-                trace = self.recBlockCube(c)
-                if trace is not None:
-                    print("Found trace ending in bad state:")
-                    self.sanity_checker._debug_trace(trace)
-                    while not trace.empty():
-                        idx, cube = trace.get()
-                        print(cube)
-                    return False
-                print("recBlockCube Ok! F:")
+                    c = self.getBadCube()
+                    if c is not None:
+                        trace = self.recBlockCube(c)
+                        if trace is not None:
+                            self.status = "Found trace ending in bad state"
+                            self.sanity_checker._debug_trace(trace)
+                            while not trace.empty():
+                                idx, cube = trace.get()
+                                self.console.print(cube)
+                            
+                            return False
 
-            else:
-                inv = self.checkForInduction()
-                if inv != None:
-                    print("Found inductive invariant")
-                    self.sanity_checker._debug_print_frame(len(self.frames)-1)
-                    print ('Total F', len(self.frames), ' F[-1]:', len(self.frames[-1].Lemma))
-                    return True
-                print("Did not find invariant, adding frame " + str(len(self.frames)) + "...")
+                    else:
+                        inv = self.checkForInduction()
+                        if inv is not None:
+                            self.status = "Found inductive invariant"
+                            self.sanity_checker._debug_print_frame(len(self.frames) - 1)
+                            
+                            break
 
-                print("Adding frame " + str(len(self.frames)) + "...")
-                self.frames.append(Frame(lemmas=[]))
+                        self.frames.append(Frame(lemmas=[]))
 
-                for idx in range(1,len(self.frames)-1):
-                    self.pushLemma(idx)
+                        for idx in range(1, len(self.frames) - 1):
+                            self.pushLemma(idx)
 
-                print("Now print out the size of frames")
-                for index in range(len(self.frames)):
-                    push_cnt = self.frames[index].pushed.count(True)
-                    print("F", index, 'size:', len(self.frames[index].Lemma), 'pushed: ', push_cnt)
-                    assert (len(self.frames[index].Lemma) == len(self.frames[index].pushed))
+                while True:
+                    live.update(self.get_table())
+        except KeyboardInterrupt:
+            self.console.print(Panel("Exiting", style="bold yellow"))
+
+    def get_table(self):
+        table = Table(title="PDR Algorithm Status")
+        table.add_column("Variable", style="cyan")
+        table.add_column("Value", style="magenta")
+        
+        table.add_row("Engine Status", self.status)
+        table.add_row("Current Frame", str(len(self.frames) - 1))
+        table.add_row("Total Frames", str(len(self.frames)))
+        
+        # start from frame 1, frame 0 is init
+        for index in range(1, len(self.frames)):
+            push_cnt = self.frames[index].pushed.count(True)
+            table.add_row(f"Frame {index} Size", str(len(self.frames[index].Lemma)))
+            table.add_row(f"Frame {index} Pushed", str(push_cnt))
+
+        return table
 
     def checkForInduction(self):
         Fi2 = self.frames[-2].cube()
@@ -95,7 +122,7 @@ class PDR:
             return Fi
         return None
 
-    def pushLemma(self, Fidx:int):
+    def pushLemma(self, Fidx: int):
         fi: Frame = self.frames[Fidx]
 
         for lidx, c in enumerate(fi.Lemma):
@@ -104,12 +131,12 @@ class PDR:
             s = Solver()
             s.add(fi.cube())
             s.add(self.trans.cube())
-            s.add(substitute(Not(substitute(c, self.primeMap)),self.inp_map))
+            s.add(substitute(Not(substitute(c, self.primeMap)), self.inp_map))
 
-            if s.check()==unsat:
+            if s.check() == unsat:
                 fi.pushed[lidx] = True
                 self.frames[Fidx + 1].add(c)
-    
+
     def frame_trivially_block(self, st: tCube):
         Fidx = st.t
         slv = Solver()
@@ -121,17 +148,16 @@ class PDR:
 
     def recBlockCube(self, s0: tCube):
         Q = PriorityQueue()
-        print("recBlockCube now...")
+        logging.info("recBlockCube now...")
         Q.put((s0.t, s0))
         prevFidx = None
         while not Q.empty():
-            print (Q.qsize())
-            s:tCube = Q.get()[1]
+            s: tCube = Q.get()[1]
             if s.t == 0:
                 return Q
 
-            assert(prevFidx != 0)
-            if prevFidx is not None and prevFidx == s.t-1:
+            assert (prevFidx != 0)
+            if prevFidx is not None and prevFidx == s.t - 1:
                 self.pushLemma(prevFidx)
             prevFidx = s.t
             if self.frame_trivially_block(s):
@@ -142,37 +168,33 @@ class PDR:
                 sz = s.true_size()
                 original_s_1 = s.clone()
                 q4unsatcore = s.clone()
-                self.unsatcore_reduce(q4unsatcore, trans=self.trans.cube(), frame=self.frames[q4unsatcore.t-1].cube())
+                self.unsatcore_reduce(q4unsatcore, trans=self.trans.cube(), frame=self.frames[q4unsatcore.t - 1].cube())
                 q4unsatcore.remove_true()
                 s = self.MIC(s)
                 self.sanity_checker._check_MIC(s)
-                print ('MIC ', sz, ' --> ', s.true_size(),  'F', s.t)
                 self.frames[s.t].add(Not(s.cube()), pushed=False)
                 for i in range(1, s.t):
                     self.frames[i].add(Not(s.cube()), pushed=True)
 
             else:
-                assert(z.t == s.t-1)
+                assert (z.t == s.t - 1)
                 Q.put((s.t, s))
-                Q.put((s.t-1, z))
+                Q.put((s.t - 1, z))
         return None
 
     def down(self, q: tCube):
         while True:
-            print(q.true_size(), end=',')
             s = Solver()
             s.push()
             s.add(self.frames[0].cube())
             s.add(q.cube())
             if sat == s.check():
-                print('F')
                 return False
             s.pop()
             s.push()
-            s.add(And(self.frames[q.t-1].cube(), Not(q.cube()), self.trans.cube(),
-                      substitute(substitute(q.cube(), self.primeMap),self.inp_map)))
+            s.add(And(self.frames[q.t - 1].cube(), Not(q.cube()), self.trans.cube(),
+                      substitute(substitute(q.cube(), self.primeMap), self.inp_map)))
             if unsat == s.check():
-                print('T')
                 return True
             m = s.model()
             has_removed = q.join(m)
@@ -181,37 +203,33 @@ class PDR:
 
     def MIC(self, q: tCube):
         sz = q.true_size()
-        self.unsatcore_reduce(q, trans=self.trans.cube(), frame=self.frames[q.t-1].cube())
-        print('unsatcore', sz, ' --> ', q.true_size())
+        self.unsatcore_reduce(q, trans=self.trans.cube(), frame=self.frames[q.t - 1].cube())
         q.remove_true()
 
         for i in range(len(q.cubeLiterals)):
             if q.cubeLiterals[i] is True:
                 continue
             q1 = q.delete(i)
-            print(f'MIC try idx:{i}')
-            if self.down(q1): 
+            if self.down(q1):
                 q = q1
         q.remove_true()
-        print (q)
         return q
 
-    def unsatcore_reduce(self, q:  tCube, trans, frame):
+    def unsatcore_reduce(self, q: tCube, trans, frame):
         slv = Solver()
         slv.set(unsat_core=True)
 
-        l = Or( And(Not(q.cube()), trans, frame), self.initprime)
+        l = Or(And(Not(q.cube()), trans, frame), self.initprime)
         slv.add(l)
 
         plist = []
         for idx, literal in enumerate(q.cubeLiterals):
-            p = 'p'+str(idx)
-            slv.assert_and_track(substitute(substitute(literal, self.primeMap),self.inp_map), p)
+            p = 'p' + str(idx)
+            slv.assert_and_track(substitute(substitute(literal, self.primeMap), self.inp_map), p)
             plist.append(p)
         res = slv.check()
         if res == sat:
             model = slv.model()
-            print(model.eval(self.initprime))
             assert False
         assert (res == unsat)
         core = slv.unsat_core()
@@ -219,7 +237,7 @@ class PDR:
             if Bool(p) not in core:
                 q.cubeLiterals[idx] = True
         return q
-
+    
     def solveRelative(self, tcube) -> tCube:
         cubePrime = substitute(substitute(tcube.cube(), self.primeMap),self.inp_map)
         s = Solver()
@@ -240,7 +258,7 @@ class PDR:
 
     def generalize_predecessor(self, prev_cube:tCube, next_cube_expr, prevF):
         tcube_cp = prev_cube.clone()
-        print("original size of !P (or CTI): ", len(tcube_cp.cubeLiterals))
+        #logging.info("original size of !P (or CTI): ", len(tcube_cp.cubeLiterals))
 
         nextcube = substitute(substitute(substitute(next_cube_expr, self.primeMap),self.inp_map), list(self.pv2next.items()))
         index_to_remove = []
@@ -284,8 +302,7 @@ class PDR:
         return tcube_cp
 
     def getBadCube(self):
-        print("seek for bad cube...")
-
+        logging.info("seek for bad cube...")
         s = Solver()
         s.add(substitute(substitute(Not(self.post.cube()), self.primeMap),self.inp_map))
         s.add(self.frames[-1].cube())
@@ -294,10 +311,8 @@ class PDR:
         if s.check() == sat:
             res = tCube(len(self.frames) - 1)
             res.addModel(self.lMap, s.model(), remove_input=False)
-            print("get bad cube size:", len(res.cubeLiterals), end=' --> ')
             self.sanity_checker._debug_c_is_predecessor(res.cube(), self.trans.cube(), self.frames[-1].cube(), substitute(substitute(self.post.cube(), self.primeMap),self.inp_map)) 
             new_model = self.generalize_predecessor(res, Not(self.post.cube()), self.frames[-1].cube())
-            print(len(new_model.cubeLiterals))
             self.sanity_checker._debug_c_is_predecessor(new_model.cube(), self.trans.cube(), self.frames[-1].cube(), substitute(substitute(self.post.cube(), self.primeMap),self.inp_map))
             new_model.remove_input()
             return new_model

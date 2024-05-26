@@ -180,7 +180,7 @@ class Model:
             pinp[it] = Bool(str(inp[it]) + '_prime') # v -> v_prime, change this, because we want generate .smt2 later
             self.inp_prime.append(pinp[it])
 
-        print("inputs: ",self.inputs)
+        #print("inputs: ",self.inputs)
 
         # vars of latch
         vs = dict()
@@ -311,7 +311,7 @@ class Model:
                     exit(1)
         self.trans.addAnds(trans_items)
 
-        print("trans:",self.trans.cube())
+        #print("trans:",self.trans.cube())
         # print(self.trans.cube())
 
         # postulate
@@ -370,8 +370,8 @@ class Model:
         self.post.addAnds(property_items) #TODO: 修复这里识别不出bad state的问题，目前只有源文件btor用btor2tools转aiger的文件可以正常被parse
         # self.post.add(Or(vs['54'], vs['66'], Not(vs['68']), Not(vs['56'])))
         # print("postAdded")
-        print("self.inputs: ",self.inputs)
-        print("self.vars: ",self.vars)
+        #print("self.inputs: ",self.inputs)
+        #print("self.vars: ",self.vars)
         return self.inputs, self.vars, self.primed_vars, self.init, self.trans, self.post, self.pv2next, self.inp_prime, self.filename
 
 
