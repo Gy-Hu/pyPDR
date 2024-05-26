@@ -37,6 +37,8 @@ class PDR:
         for _, updatefun in self.pv2next.items():
             self.ternary_simulator.register_expr(updatefun)
         self.filename = filename
+        self.solver = Solver()
+        self.solver4generalization = Solver()
         self.status = "Running..."
         
         # measurement variables
@@ -57,19 +59,25 @@ class PDR:
         self.cti_queue_sizes = []
 
     def check_init(self):
-        s = Solver()
-        s.add(self.init.cube())
-        s.add(Not(self.post.cube()))
-        res1 = s.check()
+        self.solver.push()
+        self.solver.add(self.init.cube())
+        self.solver.add(Not(self.post.cube()))
+        res1 = self.solver.check()
+        self.solver.pop()
+
         if res1 == sat:
             return False
-        s = Solver()
-        s.add(self.init.cube())
-        s.add(self.trans.cube())
-        s.add(substitute(substitute(Not(self.post.cube()), self.primeMap), self.inp_map))
-        res2 = s.check()
+
+        self.solver.push()
+        self.solver.add(self.init.cube())
+        self.solver.add(self.trans.cube())
+        self.solver.add(substitute(substitute(Not(self.post.cube()), self.primeMap), self.inp_map))
+        res2 = self.solver.check()
+        self.solver.pop()
+
         if res2 == sat:
             return False
+
         return True
 
     def run(self):
@@ -122,45 +130,48 @@ class PDR:
         start_time = time.time()  # Start timing
         Fi2 = self.frames[-2].cube()
         Fi = self.frames[-1].cube()
-        s = Solver()
-        s.add(Fi)
-        s.add(Not(Fi2))
-        res = s.check()
+        self.solver.push()
+        self.solver.add(Fi)
+        self.solver.add(Not(Fi2))
+        res = self.solver.check()
         end_time = time.time()  # End timing
+        self.solver.pop()
         self.sum_of_check_induction_time += end_time - start_time  # Update sum of check induction time
         if res == unsat:
             return Fi
         return None
 
     def pushLemma(self, Fidx: int):
-        start_time = time.time()  # Start timing
+        start_time = time.time()
         fi: Frame = self.frames[Fidx]
         for lidx, c in enumerate(fi.Lemma):
-            self.total_push_attempts += 1  # Increment total push attempts
-            if fi.pushed[lidx]:  # Check if already pushed
+            self.total_push_attempts += 1
+            if fi.pushed[lidx]:
                 continue
-            s = Solver()
-            s.add(fi.cube())
-            s.add(self.trans.cube())
-            s.add(substitute(Not(substitute(c, self.primeMap)), self.inp_map))
-            if s.check() == unsat:
+            self.solver.push()
+            self.solver.add(fi.cube())
+            self.solver.add(self.trans.cube())
+            self.solver.add(substitute(Not(substitute(c, self.primeMap)), self.inp_map))
+            if self.solver.check() == unsat:
                 fi.pushed[lidx] = True
-                self.successful_pushes += 1  # Increment successful pushes
+                self.successful_pushes += 1
                 self.frames[Fidx + 1].add(c)
-        end_time = time.time()  # End timing
+            self.solver.pop()
+        end_time = time.time()
         time_taken = end_time - start_time
-        self.avg_propagation_times.append(time_taken)  # Record the propagation time
-        self.sum_of_propagate_time += time_taken  # Update sum of propagate time
+        self.avg_propagation_times.append(time_taken)
+        self.sum_of_propagate_time += time_taken
 
     def frame_trivially_block(self, st: tCube):
-        start_time = time.time()  # Start timing
+        start_time = time.time()
         Fidx = st.t
-        slv = Solver()
-        slv.add(self.frames[Fidx].cube())
-        slv.add(st.cube())
-        res = slv.check()
-        end_time = time.time()  # End timing
-        self.sum_of_frame_trivially_block_time += end_time - start_time  # Update sum of frame trivially block time
+        self.solver.push()
+        self.solver.add(self.frames[Fidx].cube())
+        self.solver.add(st.cube())
+        res = self.solver.check()
+        self.solver.pop()
+        end_time = time.time()
+        self.sum_of_frame_trivially_block_time += end_time - start_time
         if res == unsat:
             return True
         return False
@@ -204,21 +215,23 @@ class PDR:
 
     def down(self, q: tCube):
         while True:
-            s = Solver()
-            s.push()
-            s.add(self.frames[0].cube())
-            s.add(q.cube())
-            if sat == s.check():
+            self.solver.push()
+            self.solver.add(self.frames[0].cube())
+            self.solver.add(q.cube())
+            if sat == self.solver.check():
+                self.solver.pop()
                 return False
-            s.pop()
-            s.push()
-            s.add(And(self.frames[q.t - 1].cube(), Not(q.cube()), self.trans.cube(),
-                      substitute(substitute(q.cube(), self.primeMap), self.inp_map)))
-            if unsat == s.check():
+            self.solver.pop()
+
+            self.solver.push()
+            self.solver.add(And(self.frames[q.t - 1].cube(), Not(q.cube()), self.trans.cube(),
+                                substitute(substitute(q.cube(), self.primeMap), self.inp_map)))
+            if unsat == self.solver.check():
+                self.solver.pop()
                 return True
-            m = s.model()
+            m = self.solver.model()
             has_removed = q.join(m)
-            s.pop()
+            self.solver.pop()
             assert (has_removed)
 
     def MIC(self, q: tCube):
@@ -245,50 +258,57 @@ class PDR:
 
     def unsatcore_reduce(self, q: tCube, trans, frame):
         start_time = time.time()  # Start timing
-        slv = Solver()
-        slv.set(unsat_core=True)
 
         l = Or(And(Not(q.cube()), trans, frame), self.initprime)
-        slv.add(l)
+        self.solver.push()
+        self.solver.set(unsat_core=True)
+        self.solver.add(l)
 
         plist = []
         for idx, literal in enumerate(q.cubeLiterals):
             p = 'p' + str(idx)
-            slv.assert_and_track(substitute(substitute(literal, self.primeMap), self.inp_map), p)
+            self.solver.assert_and_track(substitute(substitute(literal, self.primeMap), self.inp_map), p)
             plist.append(p)
-        res = slv.check()
+
+        res = self.solver.check()
         if res == sat:
-            model = slv.model()
+            model = self.solver.model()
             assert False
+
         assert (res == unsat)
-        core = slv.unsat_core()
+        core = self.solver.unsat_core()
+        self.solver.pop()
+
         for idx, p in enumerate(plist):
             if Bool(p) not in core:
                 q.cubeLiterals[idx] = True
+
         end_time = time.time()  # End timing
         self.sum_of_unsatcore_reduce_time += end_time - start_time  # Update sum of unsatcore reduce time
         return q
     
     def solveRelative(self, tcube) -> tCube:
-        start_time = time.time()  # Start timing
+        start_time = time.time()
         cubePrime = substitute(substitute(tcube.cube(), self.primeMap),self.inp_map)
-        s = Solver()
-        s.add(Not(tcube.cube()))
-        s.add(self.frames[tcube.t - 1].cube())
-        s.add(self.trans.cube())
-        s.add(cubePrime)
-
-        if s.check()==sat:
-            model = s.model()
+        self.solver.push()
+        self.solver.add(Not(tcube.cube()))
+        self.solver.add(self.frames[tcube.t - 1].cube())
+        self.solver.add(self.trans.cube())
+        self.solver.add(cubePrime)
+        
+        if self.solver.check() == sat:
+            model = self.solver.model()
             c = tCube(tcube.t - 1)
             c.addModel(self.lMap, model, remove_input=False)
             generalized_p = self.generalize_predecessor(c, next_cube_expr = tcube.cube(), prevF=self.frames[tcube.t-1].cube())
             generalized_p.remove_input()
-            end_time = time.time()  # End timing
-            self.sum_of_solve_relative_time += end_time - start_time  # Update sum of solve relative time
+            self.solver.pop()
+            end_time = time.time()
+            self.sum_of_solve_relative_time += end_time - start_time
             return generalized_p
         else:
-            end_time = time.time()  # End timing
+            self.solver.pop()
+            end_time = time.time()
             self.sum_of_solve_relative_time += end_time - start_time
             return None
 
@@ -300,13 +320,17 @@ class PDR:
         nextcube = substitute(substitute(substitute(next_cube_expr, self.primeMap),self.inp_map), list(self.pv2next.items()))
         index_to_remove = []
 
-        s = Solver()
+        #FIXME: if use the self.solver() here will encounter bug
+        
+        self.solver4generalization.push()
+        self.solver4generalization.set(unsat_core=True)
         for index, literals in enumerate(tcube_cp.cubeLiterals):
-            s.assert_and_track(literals,'p'+str(index))
-        s.add(Not(nextcube))
-        assert(s.check() == unsat)
-        core = s.unsat_core()
+            self.solver4generalization.assert_and_track(literals,'p'+str(index))
+        self.solver4generalization.add(Not(nextcube))
+        assert(self.solver4generalization.check() == unsat)
+        core = self.solver4generalization.unsat_core()
         core = [str(core[i]) for i in range(0, len(core), 1)]
+        self.solver4generalization.pop()
 
         for idx in range(len(tcube_cp.cubeLiterals)):
             var, val = _extract(prev_cube.cubeLiterals[idx])
@@ -347,24 +371,26 @@ class PDR:
     def getBadCube(self):
         start_time = time.time()
         logging.info("seek for bad cube...")
-        s = Solver()
-        s.add(substitute(substitute(Not(self.post.cube()), self.primeMap),self.inp_map))
-        s.add(self.frames[-1].cube())
-        s.add(self.trans.cube())
+        self.solver.push()
+        self.solver.add(substitute(substitute(Not(self.post.cube()), self.primeMap),self.inp_map))
+        self.solver.add(self.frames[-1].cube())
+        self.solver.add(self.trans.cube())
         
-        res = s.check()
+        res = self.solver.check()
         end_time = time.time()
         self.sum_of_cti_producing_time += end_time - start_time
-
+        
         if res == sat:
             res = tCube(len(self.frames) - 1)
-            res.addModel(self.lMap, s.model(), remove_input=False)
-            self.sanity_checker._debug_c_is_predecessor(res.cube(), self.trans.cube(), self.frames[-1].cube(), substitute(substitute(self.post.cube(), self.primeMap),self.inp_map)) 
+            res.addModel(self.lMap, self.solver.model(), remove_input=False)
+            self.sanity_checker._debug_c_is_predecessor(res.cube(), self.trans.cube(), self.frames[-1].cube(), substitute(substitute(self.post.cube(), self.primeMap),self.inp_map))
             new_model = self.generalize_predecessor(res, Not(self.post.cube()), self.frames[-1].cube())
             self.sanity_checker._debug_c_is_predecessor(new_model.cube(), self.trans.cube(), self.frames[-1].cube(), substitute(substitute(self.post.cube(), self.primeMap),self.inp_map))
             new_model.remove_input()
+            self.solver.pop()
             return new_model
         else:
+            self.solver.pop()
             return None
     
 if __name__ == '__main__':

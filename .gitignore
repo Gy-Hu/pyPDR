@@ -1,3 +1,5 @@
 aiger_tools/
 __pycache__/
 dataset/
+test.py
+pdr.log

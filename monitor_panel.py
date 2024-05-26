@@ -27,7 +27,7 @@ class MonitorPannel:
             return f"{value / self.pdr.overall_runtime * 100:.2f}" if self.pdr.overall_runtime != 0 else "0.00"
 
         table1.add_row("Sum of Propagation Time (s)", f"{self.pdr.sum_of_propagate_time:.2f}", percentage(self.pdr.sum_of_propagate_time))
-        table1.add_row("Sum of Generalization Time (s)", f"{self.pdr.sum_of_predecessor_generalization_time:.2f}", percentage(self.pdr.sum_of_predecessor_generalization_time))
+        table1.add_row("Sum of Predecessor Generalization Time (s)", f"{self.pdr.sum_of_predecessor_generalization_time:.2f}", percentage(self.pdr.sum_of_predecessor_generalization_time))
         table1.add_row("Sum of MIC Time (s)", f"{self.pdr.sum_of_mic_time:.2f}", percentage(self.pdr.sum_of_mic_time))
         table1.add_row("Sum of CTI Producing Time (s)", f"{self.pdr.sum_of_cti_producing_time:.2f}", percentage(self.pdr.sum_of_cti_producing_time))
         table1.add_row("Sum of solve relative Time (s)", f"{self.pdr.sum_of_solve_relative_time:.2f}", percentage(self.pdr.sum_of_solve_relative_time))
