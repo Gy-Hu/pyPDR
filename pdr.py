@@ -1,150 +1,12 @@
-from math import fabs
 from z3 import *
-import sys
-import csv
-import numpy as np
 from queue import PriorityQueue
-from functools import wraps
-from itertools import combinations
-import random
-import collections
 import ternary_sim
-
-class Frame:
-    def __init__(self, lemmas):
-        self.Lemma = lemmas
-        self.pushed = [False] * len(lemmas)
-
-    def cube(self):
-        return And(self.Lemma)
-
-    def add(self, clause, pushed=False):
-        self.Lemma.append(clause)
-        self.pushed.append(pushed)
-
-    def __repr__(self):
-        return str(sorted(self.Lemma, key=str))
-
-class tCube:
-    def __init__(self, t=0):
-        self.t = t
-        self.cubeLiterals = list()
-
-    def __lt__(self, other):
-        return self.t < other.t
-
-    def clone(self):
-        ret = tCube(self.t)
-        ret.cubeLiterals = self.cubeLiterals.copy()
-        return ret
-    
-    def clone_and_sort(self):
-        ret = tCube(self.t)
-        ret.cubeLiterals = self.cubeLiterals.copy()
-        ret.cubeLiterals.sort(key=lambda x: str(_extract(x)[0]))
-        return ret
-
-    def remove_true(self):
-        self.cubeLiterals = [c for c in self.cubeLiterals if c is not True]
-    
-    def __eq__(self, other):
-        return collections.Counter(self.cubeLiterals) == collections.Counter(other.cubeLiterals)
-
-    def addModel(self, lMap, model, remove_input):
-        no_var_primes = [l for l in model if str(l)[0] == 'i' or not str(l).endswith('_prime')]
-        if remove_input:
-            no_input = [l for l in no_var_primes if str(l)[0] != 'i']
-        else:
-            no_input = no_var_primes
-        for l in no_input:
-            self.add(lMap[str(l)] == model[l])
-
-    def remove_input(self):
-        index_to_remove = set()
-        for idx, literal in enumerate(self.cubeLiterals):
-            children = literal.children()
-            assert(len(children) == 2)
-
-            if str(children[0]) in ['True', 'False']:
-                v = str(children[1])
-            elif str(children[1]) in ['True', 'False']:
-                v = str(children[0])
-            else:
-                assert(False)
-            assert (v[0] in ['i', 'v'])
-            if v[0] == 'i':
-                index_to_remove.add(idx)
-        self.cubeLiterals = [self.cubeLiterals[i] for i in range(len(self.cubeLiterals)) if i not in index_to_remove]
-
-    def addAnds(self, ms):
-        for i in ms:
-            self.add(i)
-
-    def add(self, m):
-        self.cubeLiterals.append(m)
-
-    def true_size(self):
-        return len(self.cubeLiterals) - self.cubeLiterals.count(True)
-
-    def join(self, model):
-        literal_idx_to_remove = set()
-        model = {str(var): model[var] for var in model}
-        for idx, literal in enumerate(self.cubeLiterals):
-            if literal is True:
-                continue
-            var, val = _extract(literal)
-            var = str(var)
-            assert(var[0] == 'v')
-            if var not in model:
-                literal_idx_to_remove.add(idx)
-                continue
-            val2 = model[var]
-            if str(val2) == str(val):
-                continue
-            literal_idx_to_remove.add(idx)
-        for idx in literal_idx_to_remove:
-            self.cubeLiterals[idx] = True
-        return len(literal_idx_to_remove) != 0
-
-    def delete(self, i: int):
-        res = tCube(self.t)
-        for it, v in enumerate(self.cubeLiterals):
-            if i == it:
-                res.add(True)
-                continue
-            res.add(v)
-        return res
-
-    def cube(self):
-        return simplify(And(self.cubeLiterals))
-
-    def cube_remove_equal(self):
-        res = tCube(self.t)
-        for literal in self.cubeLiterals:
-            children = literal.children()
-            assert(len(children) == 2)
-            cube_literal = And(Not(And(children[0],Not(children[1]))), Not(And(children[1],Not(children[0]))))
-            res.add(cube_literal)
-        return res
-
-    def __repr__(self):
-        return str(self.t) + ": " + str(sorted(self.cubeLiterals, key=str))
-
-def _extract(literaleq):
-    children = literaleq.children()
-    assert(len(children) == 2)
-    if str(children[0]) in ['True', 'False']:
-        v = children[1]
-        val = children[0]
-    elif str(children[1]) in ['True', 'False']:
-        v = children[0]
-        val = children[1]
-    else:
-        assert(False)
-    return v, val
+from cube_manager import tCube, _extract
+from frame_manager import Frame
+from sanity_checker import SanityChecker
 
 class PDR:
-    def __init__(self, primary_inputs, literals, primes, init, trans, post, pv2next, primes_inp, filename, debug=False):
+    def __init__(self, primary_inputs, literals, primes, init, trans, post, pv2next, primes_inp, filename, debug=True):
         self.primary_inputs = primary_inputs
         self.init = init
         self.trans = trans
@@ -153,6 +15,8 @@ class PDR:
         self.lMap = {str(l): l for l in self.items}
         self.post = post
         self.frames = list()
+        self.debug = debug
+        self.sanity_checker = SanityChecker(self)
         self.primeMap = [(literals[i], primes[i]) for i in range(len(literals))]
         self.inp_map = [(primary_inputs[i], primes_inp[i]) for i in range(len(primes_inp))]
         self.pv2next = pv2next
@@ -193,7 +57,7 @@ class PDR:
                 trace = self.recBlockCube(c)
                 if trace is not None:
                     print("Found trace ending in bad state:")
-                    self._debug_trace(trace)
+                    self.sanity_checker._debug_trace(trace)
                     while not trace.empty():
                         idx, cube = trace.get()
                         print(cube)
@@ -204,7 +68,7 @@ class PDR:
                 inv = self.checkForInduction()
                 if inv != None:
                     print("Found inductive invariant")
-                    self._debug_print_frame(len(self.frames)-1)
+                    self.sanity_checker._debug_print_frame(len(self.frames)-1)
                     print ('Total F', len(self.frames), ' F[-1]:', len(self.frames[-1].Lemma))
                     return True
                 print("Did not find invariant, adding frame " + str(len(self.frames)) + "...")
@@ -281,7 +145,7 @@ class PDR:
                 self.unsatcore_reduce(q4unsatcore, trans=self.trans.cube(), frame=self.frames[q4unsatcore.t-1].cube())
                 q4unsatcore.remove_true()
                 s = self.MIC(s)
-                self._check_MIC(s)
+                self.sanity_checker._check_MIC(s)
                 print ('MIC ', sz, ' --> ', s.true_size(),  'F', s.t)
                 self.frames[s.t].add(Not(s.cube()), pushed=False)
                 for i in range(1, s.t):
@@ -431,89 +295,14 @@ class PDR:
             res = tCube(len(self.frames) - 1)
             res.addModel(self.lMap, s.model(), remove_input=False)
             print("get bad cube size:", len(res.cubeLiterals), end=' --> ')
-            self._debug_c_is_predecessor(res.cube(), self.trans.cube(), self.frames[-1].cube(), substitute(substitute(self.post.cube(), self.primeMap),self.inp_map)) 
+            self.sanity_checker._debug_c_is_predecessor(res.cube(), self.trans.cube(), self.frames[-1].cube(), substitute(substitute(self.post.cube(), self.primeMap),self.inp_map)) 
             new_model = self.generalize_predecessor(res, Not(self.post.cube()), self.frames[-1].cube())
             print(len(new_model.cubeLiterals))
-            self._debug_c_is_predecessor(new_model.cube(), self.trans.cube(), self.frames[-1].cube(), substitute(substitute(self.post.cube(), self.primeMap),self.inp_map))
+            self.sanity_checker._debug_c_is_predecessor(new_model.cube(), self.trans.cube(), self.frames[-1].cube(), substitute(substitute(self.post.cube(), self.primeMap),self.inp_map))
             new_model.remove_input()
             return new_model
         else:
             return None
-
-    def _debug_print_frame(self, fidx, skip_pushed=False):
-        if not self.debug:
-            return
-        for idx, c in enumerate(self.frames[fidx].Lemma):
-            if skip_pushed and self.frames[fidx].pushed[idx]:
-                continue
-            if 'i' in str(c):
-                print('C', idx, ':', 'property')
-            else:
-                print('C', idx, ':', str(c))
-
-    def _debug_c_is_predecessor(self, c, t, f, not_cp):
-        if not self.debug:
-            return
-        s = Solver()
-        s.add(c)
-        s.add(t)
-        if f is not True:
-            s.add(f)
-        s.add(not_cp)
-        assert (s.check() == unsat)
-        
-    def _check_MIC(self, st:tCube):
-        if not self.debug:
-            return
-        cubePrime = substitute(substitute(st.cube(), self.primeMap),self.inp_map)
-        s = Solver()
-        s.add(Not(st.cube()))
-        s.add(self.frames[st.t - 1].cube())
-        s.add(self.trans.cube())
-        s.add(cubePrime)
-        assert (s.check() == unsat)
-    
-    def _debug_trace(self, trace: PriorityQueue):
-        if not self.debug:
-            return
-        prev_fidx = 0
-        self.bmc.setup()
-        while not trace.empty():
-            idx, cube = trace.get()
-            assert (idx == prev_fidx+1)
-            self.bmc.unroll()
-            self.bmc.add(cube.cube())
-            reachable = self.bmc.check()
-            if reachable:
-                print (f'F {prev_fidx} ---> {idx}')
-            else:
-                print(f'F {prev_fidx} -/-> {idx}')
-                assert(False)
-            prev_fidx += 1
-        self.bmc.unroll()
-        self.bmc.add(Not(self.post.cube()))
-        assert(self.bmc.check() == sat)
-        
-    def _sanity_check_inv(self, inv):
-        pass
-
-    def _sanity_check_frame(self):
-        if not self.debug:
-            return
-        for idx in range(0,len(self.frames)-1):
-            # check Fi => Fi+1
-            # Fi/\T => Fi+1
-            Fi = self.frames[idx].cube()
-            Fiadd1 = self.frames[idx+1].cube()
-            s1 = Solver()
-            s1.add(Fi)
-            s1.add(Not(Fiadd1))
-            assert( s1.check() == unsat)
-            s2 = Solver()
-            s2.add(Fi)
-            s2.add(self.trans.cube())
-            s2.add(substitute(substitute(Not(Fiadd1), self.primeMap),self.inp_map))
-            assert( s2.check() == unsat)
     
 if __name__ == '__main__':
     pass
