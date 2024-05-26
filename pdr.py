@@ -4,21 +4,20 @@ import ternary_sim
 from cube_manager import tCube, _extract
 from frame_manager import Frame
 from sanity_checker import SanityChecker
+from monitor_panel import MonitorPannel
 from rich.console import Console
-from rich.table import Table
 from rich.panel import Panel
 from rich.live import Live
 import logging
 import time
+from rich.panel import Panel
 
 logging.basicConfig(filename='pdr.log', level=logging.INFO, format='%(message)s')
 
 class PDR:
     def __init__(self, primary_inputs, literals, primes, init, trans, post, pv2next, primes_inp, filename, debug=False):
         self.console = Console()
-        self.avg_propagation_times = []
-        self.predecessor_generalization_reduction_percentages = []
-        self.mic_reduction_percentages = []
+       
         self.primary_inputs = primary_inputs
         self.init = init
         self.trans = trans
@@ -29,6 +28,7 @@ class PDR:
         self.frames = list()
         self.debug = debug
         self.sanity_checker = SanityChecker(self)
+        self.monitor_panel = MonitorPannel(self)
         self.primeMap = [(literals[i], primes[i]) for i in range(len(literals))]
         self.inp_map = [(primary_inputs[i], primes_inp[i]) for i in range(len(primes_inp))]
         self.pv2next = pv2next
@@ -39,6 +39,10 @@ class PDR:
         self.filename = filename
         self.status = "Running..."
         
+        # measurement variables
+        self.avg_propagation_times = []
+        self.predecessor_generalization_reduction_percentages = []
+        self.mic_reduction_percentages = []
         self.sum_of_propagate_time = 0.0
         self.sum_of_predecessor_generalization_time = 0.0
         self.sum_of_mic_time = 0.0
@@ -50,6 +54,7 @@ class PDR:
         self.sum_of_check_induction_time = 0
         self.sum_of_frame_trivially_block_time = 0
         self.sum_of_unsatcore_reduce_time = 0
+        self.cti_queue_sizes = []
 
     def check_init(self):
         s = Solver()
@@ -78,16 +83,16 @@ class PDR:
         self.frames.append(Frame(lemmas=[self.post.cube()]))
         
         try:
-            with Live(self.get_table(), console=self.console, screen=True, refresh_per_second=2) as live:
+            with Live(self.monitor_panel.get_table(), console=self.console, screen=True, refresh_per_second=2) as live:
                 
                 while True:
-                    live.update(self.get_table())
+                    live.update(self.monitor_panel.get_table())
                     start_time = time.time()
                     c = self.getBadCube()
                     if c is not None:
                         trace = self.recBlockCube(c)
                         if trace is not None:
-                            self.status = "Found trace ending in bad state"
+                            self.status = "FOUND TRACE"
                             self.sanity_checker._debug_trace(trace)
                             while not trace.empty():
                                 idx, cube = trace.get()
@@ -98,7 +103,7 @@ class PDR:
                     else:
                         inv = self.checkForInduction()
                         if inv is not None:
-                            self.status = "Found inductive invariant"
+                            self.status = "FOUND INV"
                             self.sanity_checker._debug_print_frame(len(self.frames) - 1)
                             break
 
@@ -109,49 +114,10 @@ class PDR:
                     end_time = time.time()
                     self.overall_runtime += end_time - start_time
                 while True:
-                    live.update(self.get_table())
+                    live.update(self.monitor_panel.get_table())
         except KeyboardInterrupt:
             self.console.print(Panel("Exiting", style="bold yellow"))
-
-    def get_table(self):
-        table = Table(title="PDR Algorithm Status")
-        table.add_column("Variable", style="cyan")
-        table.add_column("Value", style="magenta")
-
-        table.add_row("Engine Status", self.status)
-        avg_prop_time = sum(self.avg_propagation_times) / len(self.avg_propagation_times) if self.avg_propagation_times else 0
-        avg_gen_reduction = sum(self.predecessor_generalization_reduction_percentages) / len(self.predecessor_generalization_reduction_percentages) if self.predecessor_generalization_reduction_percentages else 0
-        avg_mic_reduction = sum(self.mic_reduction_percentages) / len(self.mic_reduction_percentages) if self.mic_reduction_percentages else 0
-
-        table.add_row("Average Propagation Time (s)", f"{avg_prop_time:.2f}")
-        table.add_row("Average Predecessor Generalization Reduction (%)", f"{avg_gen_reduction:.2f}")
-        table.add_row("Average MIC Reduction (%)", f"{avg_mic_reduction:.2f}")
-        table.add_row("Sum of Propagation Time (s)", f"{self.sum_of_propagate_time:.2f}")
-        table.add_row("Sum of Generalization Time (s)", f"{self.sum_of_predecessor_generalization_time:.2f}")
-        table.add_row("Sum of MIC Time (s)", f"{self.sum_of_mic_time:.2f}")
-        table.add_row("Sum of CTI Producing Time (s)", f"{self.sum_of_cti_producing_time:.2f}")
-        table.add_row("Sum of solve relative Time (s)", f"{self.sum_of_solve_relative_time:.2f}")
-        table.add_row("Sum of check induction Time (s)", f"{self.sum_of_check_induction_time:.2f}")
-        table.add_row("Sum of frame trivially block Time (s)", f"{self.sum_of_frame_trivially_block_time:.2f}")
-        table.add_row("Sum of unsatcore reduce Time (s)", f"{self.sum_of_unsatcore_reduce_time:.2f}")
-        table.add_row("Overall Runtime (s)", f"{self.overall_runtime:.2f}")
-        overall_push_success_rate = (self.successful_pushes / self.total_push_attempts * 100) if self.total_push_attempts > 0 else 0
-        table.add_row("Total Push Attempts", str(self.total_push_attempts))
-        table.add_row("Overall Push Success Rate (%)", f"{overall_push_success_rate:.2f}")
-        table.add_row("Current Frame", str(len(self.frames) - 1))
-        table.add_row("Total Frames", str(len(self.frames)))
-        
-        
-        # start from frame 1, frame 0 is init
-        for index in range(1, len(self.frames)):
-            push_cnt = self.frames[index].pushed.count(True)
-            table.add_row(f"Frame {index} Size", str(len(self.frames[index].Lemma)))
-            table.add_row(f"Frame {index} Pushed", str(push_cnt))
-
-       
-        
-        return table
-
+    
     def checkForInduction(self):
         start_time = time.time()  # Start timing
         Fi2 = self.frames[-2].cube()
@@ -233,6 +199,7 @@ class PDR:
                 assert (z.t == s.t - 1)
                 Q.put((s.t, s))
                 Q.put((s.t - 1, z))
+            self.cti_queue_sizes.append(Q.qsize()) 
         return None
 
     def down(self, q: tCube):
