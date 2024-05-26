@@ -15,7 +15,7 @@ from rich.panel import Panel
 logging.basicConfig(filename='pdr.log', level=logging.INFO, format='%(message)s')
 
 class PDR:
-    def __init__(self, primary_inputs, literals, primes, init, trans, post, pv2next, primes_inp, filename, debug=False):
+    def __init__(self, primary_inputs, literals, primes, init, trans, post, pv2next, primes_inp, filename, debug=True):
         self.console = Console()
         self.enable_assert = True
         self.primary_inputs = primary_inputs
@@ -39,6 +39,8 @@ class PDR:
         self.filename = filename
         self.solver = Solver()
         self.solver4generalization = Solver()
+        self.maxDepth = 10
+        self.maxCTGs = 10
         self.status = "Running..."
         
         # measurement variables
@@ -96,9 +98,9 @@ class PDR:
                 while True:
                     live.update(self.monitor_panel.get_table())
                     start_time = time.time()
-                    c = self.getBadCube()
+                    c = self.strengthen()
                     if c is not None:
-                        trace = self.recBlockCube(c)
+                        trace = self.handleObligations(c)
                         if trace is not None:
                             self.status = "FOUND TRACE"
                             self.sanity_checker._debug_trace(trace)
@@ -113,12 +115,13 @@ class PDR:
                         if inv is not None:
                             self.status = "FOUND INV"
                             self.sanity_checker._debug_print_frame(len(self.frames) - 1)
+                            self.sanity_checker._sanity_check_inv(inv)
                             break
 
                         self.frames.append(Frame(lemmas=[]))
 
                         for idx in range(1, len(self.frames) - 1):
-                            self.pushLemma(idx)
+                            self.propagate(idx)
                     end_time = time.time()
                     self.overall_runtime += end_time - start_time
                 while True:
@@ -141,7 +144,7 @@ class PDR:
             return Fi
         return None
 
-    def pushLemma(self, Fidx: int):
+    def propagate(self, Fidx: int): # renamed from pushLemma()
         start_time = time.time()
         fi: Frame = self.frames[Fidx]
         for lidx, c in enumerate(fi.Lemma):
@@ -176,7 +179,7 @@ class PDR:
             return True
         return False
 
-    def recBlockCube(self, s0: tCube):
+    def handleObligations(self, s0: tCube): # renamed from recBlockCube()
         Q = PriorityQueue()
         logging.info("recBlockCube now...")
         Q.put((s0.t, s0))
@@ -188,19 +191,19 @@ class PDR:
 
             assert (prevFidx != 0)
             if prevFidx is not None and prevFidx == s.t - 1:
-                self.pushLemma(prevFidx)
+                self.propagate(prevFidx)
             prevFidx = s.t
             if self.frame_trivially_block(s):
                 continue
 
-            z = self.solveRelative(s)
+            z = self.stateOf(s)
             if z is None:
                 sz = s.true_size()
                 original_s_1 = s.clone()
                 q4unsatcore = s.clone()
                 self.unsatcore_reduce(q4unsatcore, trans=self.trans.cube(), frame=self.frames[q4unsatcore.t - 1].cube())
                 q4unsatcore.remove_true()
-                s = self.MIC(s)
+                s = self.mic(s)
                 self.sanity_checker._check_MIC(s)
                 self.frames[s.t].add(Not(s.cube()), pushed=False)
                 for i in range(1, s.t):
@@ -212,8 +215,31 @@ class PDR:
                 Q.put((s.t - 1, z))
             self.cti_queue_sizes.append(Q.qsize()) 
         return None
+    
+    def mic(self, q: tCube):
+        start_time = time.time()  # Start timing
+        initial_size = q.true_size()
+        self.unsatcore_reduce(q, trans=self.trans.cube(), frame=self.frames[q.t - 1].cube())
+        q.remove_true()
 
-    def down(self, q: tCube):
+        for i in range(len(q.cubeLiterals)):
+            if q.cubeLiterals[i] is True:
+                continue
+            q1 = q.delete(i)
+            if self.down(q1):
+                q = q1
+                
+        q.remove_true()
+        final_size = q.true_size()
+        reduction_percentage = ((initial_size - final_size) / initial_size) * 100 if initial_size > 0 else 0
+        self.mic_reduction_percentages.append(reduction_percentage)
+        
+        end_time = time.time()  # End timing
+        time_taken = end_time - start_time
+        self.sum_of_mic_time += time_taken  # Update sum of MIC time
+        return q
+
+    def down(self, q: tCube): #renamed from down()
         while True:
             self.solver.push()
             self.solver.add(self.frames[0].cube())
@@ -233,28 +259,6 @@ class PDR:
             has_removed = q.join(m)
             self.solver.pop()
             assert (has_removed)
-
-    def MIC(self, q: tCube):
-        start_time = time.time()  # Start timing
-        initial_size = q.true_size()
-        self.unsatcore_reduce(q, trans=self.trans.cube(), frame=self.frames[q.t - 1].cube())
-        q.remove_true()
-
-        for i in range(len(q.cubeLiterals)):
-            if q.cubeLiterals[i] is True:
-                continue
-            q1 = q.delete(i)
-            if self.down(q1):
-                q = q1
-        q.remove_true()
-        final_size = q.true_size()
-        reduction_percentage = ((initial_size - final_size) / initial_size) * 100 if initial_size > 0 else 0
-        self.mic_reduction_percentages.append(reduction_percentage)
-        
-        end_time = time.time()  # End timing
-        time_taken = end_time - start_time
-        self.sum_of_mic_time += time_taken  # Update sum of MIC time
-        return q
 
     def unsatcore_reduce(self, q: tCube, trans, frame):
         start_time = time.time()  # Start timing
@@ -287,7 +291,7 @@ class PDR:
         self.sum_of_unsatcore_reduce_time += end_time - start_time  # Update sum of unsatcore reduce time
         return q
     
-    def solveRelative(self, tcube) -> tCube:
+    def stateOf(self, tcube) -> tCube: # renamed from solveRelative()
         start_time = time.time()
         cubePrime = substitute(substitute(tcube.cube(), self.primeMap),self.inp_map)
         self.solver.push()
@@ -300,7 +304,7 @@ class PDR:
             model = self.solver.model()
             c = tCube(tcube.t - 1)
             c.addModel(self.lMap, model, remove_input=False)
-            generalized_p = self.generalize_predecessor(c, next_cube_expr = tcube.cube(), prevF=self.frames[tcube.t-1].cube())
+            generalized_p = self.generalize(c, next_cube_expr = tcube.cube(), prevF=self.frames[tcube.t-1].cube())
             generalized_p.remove_input()
             self.solver.pop()
             end_time = time.time()
@@ -312,7 +316,7 @@ class PDR:
             self.sum_of_solve_relative_time += end_time - start_time
             return None
 
-    def generalize_predecessor(self, prev_cube:tCube, next_cube_expr, prevF, use_ternary_sim=False):
+    def generalize(self, prev_cube:tCube, next_cube_expr, prevF, use_ternary_sim=False): # renamed from generalize_predecessor()
         start_time = time.time()  # Start timing
         tcube_cp = prev_cube.clone()
 
@@ -378,7 +382,7 @@ class PDR:
         # Return the indices of the variables in the desired order
         return list(range(len(cubeLiterals)))
 
-    def getBadCube(self):
+    def strengthen(self): # renamed from getBadcube()
         start_time = time.time()
         logging.info("seek for bad cube...")
         self.solver.push()
@@ -394,7 +398,7 @@ class PDR:
             res = tCube(len(self.frames) - 1)
             res.addModel(self.lMap, self.solver.model(), remove_input=False)
             self.sanity_checker._debug_c_is_predecessor(res.cube(), self.trans.cube(), self.frames[-1].cube(), substitute(substitute(self.post.cube(), self.primeMap),self.inp_map))
-            new_model = self.generalize_predecessor(res, Not(self.post.cube()), self.frames[-1].cube())
+            new_model = self.generalize(res, Not(self.post.cube()), self.frames[-1].cube())
             self.sanity_checker._debug_c_is_predecessor(new_model.cube(), self.trans.cube(), self.frames[-1].cube(), substitute(substitute(self.post.cube(), self.primeMap),self.inp_map))
             new_model.remove_input()
             self.solver.pop()

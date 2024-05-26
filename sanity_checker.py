@@ -61,7 +61,33 @@ class SanityChecker:
         assert(self.pdr.bmc.check() == sat)
         
     def _sanity_check_inv(self, inv):
-        pass
+        '''
+        check the correctness of the inductive invariant
+        - init -> inv
+        - inv -> P
+        - inv & T -> inv’
+        '''
+        
+        # init -> inv
+        s = Solver()
+        s.add(self.pdr.init.cube())
+        s.add(Not(inv))
+        assert(s.check() == unsat)
+        
+        # inv -> P
+        prop = self.pdr.post.cube()
+        s = Solver()
+        s.add(inv)
+        s.add(Not(prop))
+        assert(s.check() == unsat)
+        
+        # inv & T -> inv’
+        s = Solver()
+        s.add(inv)
+        s.add(self.pdr.trans.cube())
+        s.add(Not(substitute(substitute(inv, self.pdr.primeMap),self.pdr.inp_map)))
+        assert(s.check() == unsat)
+        
 
     def _sanity_check_frame(self):
         if not self.pdr.debug:
