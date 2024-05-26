@@ -193,6 +193,7 @@ class PDR:
                 trace = self.recBlockCube(c)
                 if trace is not None:
                     print("Found trace ending in bad state:")
+                    self._debug_trace(trace)
                     while not trace.empty():
                         idx, cube = trace.get()
                         print(cube)
@@ -203,6 +204,8 @@ class PDR:
                 inv = self.checkForInduction()
                 if inv != None:
                     print("Found inductive invariant")
+                    self._debug_print_frame(len(self.frames)-1)
+                    print ('Total F', len(self.frames), ' F[-1]:', len(self.frames[-1].Lemma))
                     return True
                 print("Did not find invariant, adding frame " + str(len(self.frames)) + "...")
 
@@ -415,15 +418,6 @@ class PDR:
         tcube_cp.remove_true()
         size_after_ternary_sim = len(tcube_cp.cubeLiterals)
         return tcube_cp
-    
-    def _check_MIC(self, st:tCube):
-        cubePrime = substitute(substitute(st.cube(), self.primeMap),self.inp_map)
-        s = Solver()
-        s.add(Not(st.cube()))
-        s.add(self.frames[st.t - 1].cube())
-        s.add(self.trans.cube())
-        s.add(cubePrime)
-        assert (s.check() == unsat)
 
     def getBadCube(self):
         print("seek for bad cube...")
@@ -437,8 +431,11 @@ class PDR:
             res = tCube(len(self.frames) - 1)
             res.addModel(self.lMap, s.model(), remove_input=False)
             print("get bad cube size:", len(res.cubeLiterals), end=' --> ')
+            #TODO: Here has bug
+            self._debug_c_is_predecessor(res.cube(), self.trans.cube(), self.frames[-1].cube(), substitute(substitute(self.post.cube(), self.primeMap),self.inp_map)) 
             new_model = self.generalize_predecessor(res, Not(self.post.cube()), self.frames[-1].cube())
             print(len(new_model.cubeLiterals))
+            self._debug_c_is_predecessor(new_model.cube(), self.trans.cube(), self.frames[-1].cube(), substitute(substitute(self.post.cube(), self.primeMap),self.inp_map))
             new_model.remove_input()
             return new_model
         else:
@@ -461,6 +458,53 @@ class PDR:
             s.add(f)
         s.add(not_cp)
         assert (s.check() == unsat)
+        
+    def _check_MIC(self, st:tCube):
+        cubePrime = substitute(substitute(st.cube(), self.primeMap),self.inp_map)
+        s = Solver()
+        s.add(Not(st.cube()))
+        s.add(self.frames[st.t - 1].cube())
+        s.add(self.trans.cube())
+        s.add(cubePrime)
+        assert (s.check() == unsat)
+    
+    def _debug_trace(self, trace: PriorityQueue):
+        prev_fidx = 0
+        self.bmc.setup()
+        while not trace.empty():
+            idx, cube = trace.get()
+            assert (idx == prev_fidx+1)
+            self.bmc.unroll()
+            self.bmc.add(cube.cube())
+            reachable = self.bmc.check()
+            if reachable:
+                print (f'F {prev_fidx} ---> {idx}')
+            else:
+                print(f'F {prev_fidx} -/-> {idx}')
+                assert(False)
+            prev_fidx += 1
+        self.bmc.unroll()
+        self.bmc.add(Not(self.post.cube()))
+        assert(self.bmc.check() == sat)
+        
+    def _sanity_check_inv(self, inv):
+        pass
 
+    def _sanity_check_frame(self):
+        for idx in range(0,len(self.frames)-1):
+            # check Fi => Fi+1
+            # Fi/\T => Fi+1
+            Fi = self.frames[idx].cube()
+            Fiadd1 = self.frames[idx+1].cube()
+            s1 = Solver()
+            s1.add(Fi)
+            s1.add(Not(Fiadd1))
+            assert( s1.check() == unsat)
+            s2 = Solver()
+            s2.add(Fi)
+            s2.add(self.trans.cube())
+            s2.add(substitute(substitute(Not(Fiadd1), self.primeMap),self.inp_map))
+            assert( s2.check() == unsat)
+    
 if __name__ == '__main__':
     pass
