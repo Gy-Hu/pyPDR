@@ -144,7 +144,7 @@ def _extract(literaleq):
     return v, val
 
 class PDR:
-    def __init__(self, primary_inputs, literals, primes, init, trans, post, pv2next, primes_inp, filename):
+    def __init__(self, primary_inputs, literals, primes, init, trans, post, pv2next, primes_inp, filename, debug=False):
         self.primary_inputs = primary_inputs
         self.init = init
         self.trans = trans
@@ -431,7 +431,6 @@ class PDR:
             res = tCube(len(self.frames) - 1)
             res.addModel(self.lMap, s.model(), remove_input=False)
             print("get bad cube size:", len(res.cubeLiterals), end=' --> ')
-            #TODO: Here has bug
             self._debug_c_is_predecessor(res.cube(), self.trans.cube(), self.frames[-1].cube(), substitute(substitute(self.post.cube(), self.primeMap),self.inp_map)) 
             new_model = self.generalize_predecessor(res, Not(self.post.cube()), self.frames[-1].cube())
             print(len(new_model.cubeLiterals))
@@ -442,6 +441,8 @@ class PDR:
             return None
 
     def _debug_print_frame(self, fidx, skip_pushed=False):
+        if not self.debug:
+            return
         for idx, c in enumerate(self.frames[fidx].Lemma):
             if skip_pushed and self.frames[fidx].pushed[idx]:
                 continue
@@ -451,6 +452,8 @@ class PDR:
                 print('C', idx, ':', str(c))
 
     def _debug_c_is_predecessor(self, c, t, f, not_cp):
+        if not self.debug:
+            return
         s = Solver()
         s.add(c)
         s.add(t)
@@ -460,6 +463,8 @@ class PDR:
         assert (s.check() == unsat)
         
     def _check_MIC(self, st:tCube):
+        if not self.debug:
+            return
         cubePrime = substitute(substitute(st.cube(), self.primeMap),self.inp_map)
         s = Solver()
         s.add(Not(st.cube()))
@@ -469,6 +474,8 @@ class PDR:
         assert (s.check() == unsat)
     
     def _debug_trace(self, trace: PriorityQueue):
+        if not self.debug:
+            return
         prev_fidx = 0
         self.bmc.setup()
         while not trace.empty():
@@ -491,6 +498,8 @@ class PDR:
         pass
 
     def _sanity_check_frame(self):
+        if not self.debug:
+            return
         for idx in range(0,len(self.frames)-1):
             # check Fi => Fi+1
             # Fi/\T => Fi+1
