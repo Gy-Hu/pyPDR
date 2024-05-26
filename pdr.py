@@ -100,6 +100,7 @@ class PDR:
                     start_time = time.time()
                     c = self.strengthen()
                     if c is not None:
+                        assert len(self.solver.assertions()) == 0, "Solver is not empty after strengthen"
                         trace = self.handleObligations(c)
                         if trace is not None:
                             self.status = "FOUND TRACE"
@@ -198,9 +199,12 @@ class PDR:
 
             z = self.stateOf(s)
             if z is None:
+                assert s.cubeLiterals != [], "CTI producing cube is empty"
                 sz = s.true_size()
                 original_s_1 = s.clone()
                 q4unsatcore = s.clone()
+                assert len(self.solver.assertions()) == 0, "Solver is not empty before unsatcore_reduce"
+                
                 self.unsatcore_reduce(q4unsatcore, trans=self.trans.cube(), frame=self.frames[q4unsatcore.t - 1].cube())
                 q4unsatcore.remove_true()
                 s = self.mic(s, s.t)
@@ -298,7 +302,10 @@ class PDR:
         res = self.solver.check()
         if res == sat:
             model = self.solver.model()
-            assert False
+            print("Satisfying model:")
+            for var in model:
+                print(f"{var} = {model[var]}")
+            assert False, "Unsatcore reduction encountered a satisfiable model"
 
         assert (res == unsat)
         core = self.solver.unsat_core()
@@ -323,11 +330,11 @@ class PDR:
         
         if self.solver.check() == sat:
             model = self.solver.model()
+            self.solver.pop()
             c = tCube(tcube.t - 1)
             c.addModel(self.lMap, model, remove_input=False)
             generalized_p = self.generalize(c, next_cube_expr = tcube.cube(), prevF=self.frames[tcube.t-1].cube())
             generalized_p.remove_input()
-            self.solver.pop()
             end_time = time.time()
             self.sum_of_solve_relative_time += end_time - start_time
             return generalized_p
@@ -344,15 +351,15 @@ class PDR:
         nextcube = substitute(substitute(substitute(next_cube_expr, self.primeMap),self.inp_map), list(self.pv2next.items()))
 
         #FIXME: if use the self.solver() here will encounter bug
-        self.solver4generalization.push()
-        self.solver4generalization.set(unsat_core=True)
+        self.solver.push()
+
+        self.solver.set(unsat_core=True)
         for index, literals in enumerate(tcube_cp.cubeLiterals):
-            self.solver4generalization.assert_and_track(literals,'p'+str(index))
-        self.solver4generalization.add(Not(nextcube))
-        assert(self.solver4generalization.check() == unsat)
-        core = self.solver4generalization.unsat_core()
+            self.solver.assert_and_track(literals,'p'+str(index))
+        self.solver.add(Not(nextcube))
+        assert(self.solver.check() == unsat)
+        core = self.solver.unsat_core()
         core = [str(core[i]) for i in range(0, len(core), 1)]
-        self.solver4generalization.pop()
 
         for idx in range(len(tcube_cp.cubeLiterals)):
             var, val = _extract(prev_cube.cubeLiterals[idx])
@@ -364,6 +371,9 @@ class PDR:
         final_size = len(tcube_cp.cubeLiterals)
         reduction_percentage = ((initial_size - final_size) / initial_size) * 100 if initial_size > 0 else 0
         self.predecessor_generalization_reduction_percentages.append(reduction_percentage)  # Track reduction percentage
+        
+        # Restore the state of self.solver
+        self.solver.pop()
 
         if use_ternary_sim:
             # On-demand loading of the logic cone
@@ -418,11 +428,11 @@ class PDR:
         if res == sat:
             res = tCube(len(self.frames) - 1)
             res.addModel(self.lMap, self.solver.model(), remove_input=False)
+            self.solver.pop()
             self.sanity_checker._debug_c_is_predecessor(res.cube(), self.trans.cube(), self.frames[-1].cube(), substitute(substitute(self.post.cube(), self.primeMap),self.inp_map))
             new_model = self.generalize(res, Not(self.post.cube()), self.frames[-1].cube())
             self.sanity_checker._debug_c_is_predecessor(new_model.cube(), self.trans.cube(), self.frames[-1].cube(), substitute(substitute(self.post.cube(), self.primeMap),self.inp_map))
             new_model.remove_input()
-            self.solver.pop()
             return new_model
         else:
             self.solver.pop()
