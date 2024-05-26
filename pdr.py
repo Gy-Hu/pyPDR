@@ -9,12 +9,16 @@ from rich.table import Table
 from rich.panel import Panel
 from rich.live import Live
 import logging
+import time
 
 logging.basicConfig(filename='pdr.log', level=logging.INFO, format='%(message)s')
 
 class PDR:
     def __init__(self, primary_inputs, literals, primes, init, trans, post, pv2next, primes_inp, filename, debug=False):
         self.console = Console()
+        self.avg_propagation_times = []
+        self.predecessor_generalization_reduction_percentages = []
+        self.mic_reduction_percentages = []
         self.primary_inputs = primary_inputs
         self.init = init
         self.trans = trans
@@ -34,6 +38,18 @@ class PDR:
             self.ternary_simulator.register_expr(updatefun)
         self.filename = filename
         self.status = "Running..."
+        
+        self.sum_of_propagate_time = 0.0
+        self.sum_of_predecessor_generalization_time = 0.0
+        self.sum_of_mic_time = 0.0
+        self.total_push_attempts = 0
+        self.successful_pushes = 0
+        self.overall_runtime = 0
+        self.sum_of_cti_producing_time = 0
+        self.sum_of_solve_relative_time = 0
+        self.sum_of_check_induction_time = 0
+        self.sum_of_frame_trivially_block_time = 0
+        self.sum_of_unsatcore_reduce_time = 0
 
     def check_init(self):
         s = Solver()
@@ -52,6 +68,7 @@ class PDR:
         return True
 
     def run(self):
+        
         if not self.check_init():
             self.status = "Found trace ending in bad state"
             return False
@@ -62,9 +79,10 @@ class PDR:
         
         try:
             with Live(self.get_table(), console=self.console, screen=True, refresh_per_second=2) as live:
+                
                 while True:
                     live.update(self.get_table())
-
+                    start_time = time.time()
                     c = self.getBadCube()
                     if c is not None:
                         trace = self.recBlockCube(c)
@@ -82,14 +100,14 @@ class PDR:
                         if inv is not None:
                             self.status = "Found inductive invariant"
                             self.sanity_checker._debug_print_frame(len(self.frames) - 1)
-                            
                             break
 
                         self.frames.append(Frame(lemmas=[]))
 
                         for idx in range(1, len(self.frames) - 1):
                             self.pushLemma(idx)
-
+                    end_time = time.time()
+                    self.overall_runtime += end_time - start_time
                 while True:
                     live.update(self.get_table())
         except KeyboardInterrupt:
@@ -99,10 +117,30 @@ class PDR:
         table = Table(title="PDR Algorithm Status")
         table.add_column("Variable", style="cyan")
         table.add_column("Value", style="magenta")
-        
+
         table.add_row("Engine Status", self.status)
+        avg_prop_time = sum(self.avg_propagation_times) / len(self.avg_propagation_times) if self.avg_propagation_times else 0
+        avg_gen_reduction = sum(self.predecessor_generalization_reduction_percentages) / len(self.predecessor_generalization_reduction_percentages) if self.predecessor_generalization_reduction_percentages else 0
+        avg_mic_reduction = sum(self.mic_reduction_percentages) / len(self.mic_reduction_percentages) if self.mic_reduction_percentages else 0
+
+        table.add_row("Average Propagation Time (s)", f"{avg_prop_time:.2f}")
+        table.add_row("Average Predecessor Generalization Reduction (%)", f"{avg_gen_reduction:.2f}")
+        table.add_row("Average MIC Reduction (%)", f"{avg_mic_reduction:.2f}")
+        table.add_row("Sum of Propagation Time (s)", f"{self.sum_of_propagate_time:.2f}")
+        table.add_row("Sum of Generalization Time (s)", f"{self.sum_of_predecessor_generalization_time:.2f}")
+        table.add_row("Sum of MIC Time (s)", f"{self.sum_of_mic_time:.2f}")
+        table.add_row("Sum of CTI Producing Time (s)", f"{self.sum_of_cti_producing_time:.2f}")
+        table.add_row("Sum of solve relative Time (s)", f"{self.sum_of_solve_relative_time:.2f}")
+        table.add_row("Sum of check induction Time (s)", f"{self.sum_of_check_induction_time:.2f}")
+        table.add_row("Sum of frame trivially block Time (s)", f"{self.sum_of_frame_trivially_block_time:.2f}")
+        table.add_row("Sum of unsatcore reduce Time (s)", f"{self.sum_of_unsatcore_reduce_time:.2f}")
+        table.add_row("Overall Runtime (s)", f"{self.overall_runtime:.2f}")
+        overall_push_success_rate = (self.successful_pushes / self.total_push_attempts * 100) if self.total_push_attempts > 0 else 0
+        table.add_row("Total Push Attempts", str(self.total_push_attempts))
+        table.add_row("Overall Push Success Rate (%)", f"{overall_push_success_rate:.2f}")
         table.add_row("Current Frame", str(len(self.frames) - 1))
         table.add_row("Total Frames", str(len(self.frames)))
+        
         
         # start from frame 1, frame 0 is init
         for index in range(1, len(self.frames)):
@@ -110,39 +148,54 @@ class PDR:
             table.add_row(f"Frame {index} Size", str(len(self.frames[index].Lemma)))
             table.add_row(f"Frame {index} Pushed", str(push_cnt))
 
+       
+        
         return table
 
     def checkForInduction(self):
+        start_time = time.time()  # Start timing
         Fi2 = self.frames[-2].cube()
         Fi = self.frames[-1].cube()
         s = Solver()
         s.add(Fi)
         s.add(Not(Fi2))
-        if s.check() == unsat:
+        res = s.check()
+        end_time = time.time()  # End timing
+        self.sum_of_check_induction_time += end_time - start_time  # Update sum of check induction time
+        if res == unsat:
             return Fi
         return None
 
     def pushLemma(self, Fidx: int):
+        start_time = time.time()  # Start timing
         fi: Frame = self.frames[Fidx]
-
         for lidx, c in enumerate(fi.Lemma):
-            if fi.pushed[lidx]:
+            self.total_push_attempts += 1  # Increment total push attempts
+            if fi.pushed[lidx]:  # Check if already pushed
                 continue
             s = Solver()
             s.add(fi.cube())
             s.add(self.trans.cube())
             s.add(substitute(Not(substitute(c, self.primeMap)), self.inp_map))
-
             if s.check() == unsat:
                 fi.pushed[lidx] = True
+                self.successful_pushes += 1  # Increment successful pushes
                 self.frames[Fidx + 1].add(c)
+        end_time = time.time()  # End timing
+        time_taken = end_time - start_time
+        self.avg_propagation_times.append(time_taken)  # Record the propagation time
+        self.sum_of_propagate_time += time_taken  # Update sum of propagate time
 
     def frame_trivially_block(self, st: tCube):
+        start_time = time.time()  # Start timing
         Fidx = st.t
         slv = Solver()
         slv.add(self.frames[Fidx].cube())
         slv.add(st.cube())
-        if slv.check() == unsat:
+        res = slv.check()
+        end_time = time.time()  # End timing
+        self.sum_of_frame_trivially_block_time += end_time - start_time  # Update sum of frame trivially block time
+        if res == unsat:
             return True
         return False
 
@@ -202,7 +255,8 @@ class PDR:
             assert (has_removed)
 
     def MIC(self, q: tCube):
-        sz = q.true_size()
+        start_time = time.time()  # Start timing
+        initial_size = q.true_size()
         self.unsatcore_reduce(q, trans=self.trans.cube(), frame=self.frames[q.t - 1].cube())
         q.remove_true()
 
@@ -213,9 +267,17 @@ class PDR:
             if self.down(q1):
                 q = q1
         q.remove_true()
+        final_size = q.true_size()
+        reduction_percentage = ((initial_size - final_size) / initial_size) * 100 if initial_size > 0 else 0
+        self.mic_reduction_percentages.append(reduction_percentage)
+        
+        end_time = time.time()  # End timing
+        time_taken = end_time - start_time
+        self.sum_of_mic_time += time_taken  # Update sum of MIC time
         return q
 
     def unsatcore_reduce(self, q: tCube, trans, frame):
+        start_time = time.time()  # Start timing
         slv = Solver()
         slv.set(unsat_core=True)
 
@@ -236,9 +298,12 @@ class PDR:
         for idx, p in enumerate(plist):
             if Bool(p) not in core:
                 q.cubeLiterals[idx] = True
+        end_time = time.time()  # End timing
+        self.sum_of_unsatcore_reduce_time += end_time - start_time  # Update sum of unsatcore reduce time
         return q
     
     def solveRelative(self, tcube) -> tCube:
+        start_time = time.time()  # Start timing
         cubePrime = substitute(substitute(tcube.cube(), self.primeMap),self.inp_map)
         s = Solver()
         s.add(Not(tcube.cube()))
@@ -252,11 +317,16 @@ class PDR:
             c.addModel(self.lMap, model, remove_input=False)
             generalized_p = self.generalize_predecessor(c, next_cube_expr = tcube.cube(), prevF=self.frames[tcube.t-1].cube())
             generalized_p.remove_input()
+            end_time = time.time()  # End timing
+            self.sum_of_solve_relative_time += end_time - start_time  # Update sum of solve relative time
             return generalized_p
         else:
+            end_time = time.time()  # End timing
+            self.sum_of_solve_relative_time += end_time - start_time
             return None
 
     def generalize_predecessor(self, prev_cube:tCube, next_cube_expr, prevF):
+        start_time = time.time()  # Start timing
         tcube_cp = prev_cube.clone()
         #logging.info("original size of !P (or CTI): ", len(tcube_cp.cubeLiterals))
 
@@ -276,8 +346,11 @@ class PDR:
             if 'p'+str(idx) not in core:
                 tcube_cp.cubeLiterals[idx] = True
 
+        initial_size = len(tcube_cp.cubeLiterals)
         tcube_cp.remove_true()
-        size_after_unsat_core = len(tcube_cp.cubeLiterals)
+        final_size = len(tcube_cp.cubeLiterals)
+        reduction_percentage = ((initial_size - final_size) / initial_size) * 100 if initial_size > 0 else 0
+        self.predecessor_generalization_reduction_percentages.append(reduction_percentage)  # Track reduction percentage
 
         simulator = self.ternary_simulator.clone()
         simulator.register_expr(nextcube)
@@ -299,16 +372,24 @@ class PDR:
                 tcube_cp.cubeLiterals[i] = True
         tcube_cp.remove_true()
         size_after_ternary_sim = len(tcube_cp.cubeLiterals)
+        end_time = time.time()  # End timing
+        time_taken = end_time - start_time
+        self.sum_of_predecessor_generalization_time += time_taken  # Update sum of generalization time
         return tcube_cp
 
     def getBadCube(self):
+        start_time = time.time()
         logging.info("seek for bad cube...")
         s = Solver()
         s.add(substitute(substitute(Not(self.post.cube()), self.primeMap),self.inp_map))
         s.add(self.frames[-1].cube())
         s.add(self.trans.cube())
+        
+        res = s.check()
+        end_time = time.time()
+        self.sum_of_cti_producing_time += end_time - start_time
 
-        if s.check() == sat:
+        if res == sat:
             res = tCube(len(self.frames) - 1)
             res.addModel(self.lMap, s.model(), remove_input=False)
             self.sanity_checker._debug_c_is_predecessor(res.cube(), self.trans.cube(), self.frames[-1].cube(), substitute(substitute(self.post.cube(), self.primeMap),self.inp_map)) 
