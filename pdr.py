@@ -29,7 +29,7 @@ class HeuristicLitOrder:
             self.counts[var] = self.counts.get(var, 0) * 0.99
 
 class PDR:
-    def __init__(self, primary_inputs, literals, primes, init, trans, post, pv2next, primes_inp, filename, debug=False):
+    def __init__(self, primary_inputs, literals, primes, init, trans, post, pv2next, primes_inp, filename, debug=False, silent=True):
         self.console = Console()
         self.enable_assert = True
         self.primary_inputs = primary_inputs
@@ -57,6 +57,7 @@ class PDR:
         self.maxCTGs = 3
         self.micAttempts = float('inf')
         self.litOrderManager = HeuristicLitOrder()
+        self.silent = silent # mode of monitor panel
         self.status = "Running..."
         
         # measurement variables
@@ -112,35 +113,63 @@ class PDR:
 
     def run(self):
         if not self.check_init():
-            self.status = "Found trace ending in bad state"
+            if self.silent:
+                print("Found trace ending in bad state")
+            else:
+                self.status = "Found trace ending in bad state"
             return False
 
         self.frames = [Frame(lemmas=[self.init.cube()]), Frame(lemmas=[self.post.cube()])]
         
         try:
-            with self.live:
+            if not self.silent:
+                with self.live:
+                    while True:
+                        self.status = "Running..."
+                        self.live.update(self.monitor_panel.get_table())
+                        start_time = time.time()
+                        c = self.strengthen()
+                        if c is not None:
+                            assert len(self.solver.assertions()) == 0, "Solver is not empty after strengthen"
+                            trace = self.handleObligations(c)
+                            if trace is not None:
+                                self.status = "FOUND TRACE"
+                                self.sanity_checker._debug_trace(trace)
+                                while not trace.empty():
+                                    idx, cube = trace.get()
+                                    self.console.print(cube)
+                                #return False
+                                break
+                        else:
+                            inv = self.checkForInduction()
+                            if inv is not None:
+                                self.status = "FOUND INV"
+                                self.sanity_checker._debug_print_frame(len(self.frames) - 1)
+                                self.sanity_checker._sanity_check_inv(inv)
+                                break
+
+                            self.frames.append(Frame(lemmas=[]))
+
+                            for idx in range(1, len(self.frames) - 1):
+                                self.propagate(idx)
+                        end_time = time.time()
+                        self.overall_runtime += end_time - start_time
+                    while True:
+                        self.live.update(self.monitor_panel.get_table())
+            else:
                 while True:
-                    self.status = "Running..."
-                    self.live.update(self.monitor_panel.get_table())
                     start_time = time.time()
                     c = self.strengthen()
                     if c is not None:
                         assert len(self.solver.assertions()) == 0, "Solver is not empty after strengthen"
                         trace = self.handleObligations(c)
                         if trace is not None:
-                            self.status = "FOUND TRACE"
-                            self.sanity_checker._debug_trace(trace)
-                            while not trace.empty():
-                                idx, cube = trace.get()
-                                self.console.print(cube)
-                            #return False
+                            print("FOUND TRACE")
                             break
                     else:
                         inv = self.checkForInduction()
                         if inv is not None:
-                            self.status = "FOUND INV"
-                            self.sanity_checker._debug_print_frame(len(self.frames) - 1)
-                            self.sanity_checker._sanity_check_inv(inv)
+                            print("FOUND INV")
                             break
 
                         self.frames.append(Frame(lemmas=[]))
@@ -149,13 +178,13 @@ class PDR:
                             self.propagate(idx)
                     end_time = time.time()
                     self.overall_runtime += end_time - start_time
-                while True:
-                    self.live.update(self.monitor_panel.get_table())
         except KeyboardInterrupt:
-            self.console.print(Panel("Exiting", style="bold yellow"))
+            if not self.silent:
+                self.console.print(Panel("Exiting", style="bold yellow"))
     
     def checkForInduction(self):
-        self.status = "CHECKING INDUCTION" ; self.live.update(self.monitor_panel.get_table())
+        self.status = "CHECKING INDUCTION" 
+        if not self.silent: self.live.update(self.monitor_panel.get_table())
         start_time = time.time()
         Fi2 = self.frames[-2].cube()
         Fi = self.frames[-1].cube()
@@ -169,7 +198,8 @@ class PDR:
         return None
 
     def propagate(self, Fidx: int):
-        self.status = "PROPAGATING" ; self.live.update(self.monitor_panel.get_table())
+        self.status = "PROPAGATING" 
+        if not self.silent: self.live.update(self.monitor_panel.get_table())
         start_time = time.time()
         fi: Frame = self.frames[Fidx]
         
@@ -189,7 +219,8 @@ class PDR:
         self.sum_of_propagate_time += time_taken
 
     def frame_trivially_block(self, st: tCube):
-        self.status = "CHECKING FRAME TRIVIALLY BLOCK" ; self.live.update(self.monitor_panel.get_table())
+        self.status = "CHECKING FRAME TRIVIALLY BLOCK" 
+        if not self.silent: self.live.update(self.monitor_panel.get_table())
         start_time = time.time()
         Fidx = st.t
         
@@ -202,7 +233,8 @@ class PDR:
         return False
 
     def handleObligations(self, s0: tCube):
-        self.status = "REFINING PROOF" ; self.live.update(self.monitor_panel.get_table())
+        self.status = "REFINING PROOF" 
+        if not self.silent: self.live.update(self.monitor_panel.get_table())
         Q = PriorityQueue()
         logging.info("recBlockCube now...")
         Q.put((s0.t, s0))
@@ -245,7 +277,8 @@ class PDR:
         return None
     
     def mic(self, q: tCube, i: int, d: int = 1, use_ctg_down=False):
-        self.status = "INDUCTIVE GENERALIZATION" ; self.live.update(self.monitor_panel.get_table())
+        self.status = "INDUCTIVE GENERALIZATION" 
+        if not self.silent: self.live.update(self.monitor_panel.get_table())
         start_time = time.time()
         initial_size = q.true_size()
         self.unsatcore_reduce(q, trans=self.trans.cube(), frame=self.frames[q.t - 1].cube())
@@ -333,7 +366,8 @@ class PDR:
             self.solver.pop()
 
     def unsatcore_reduce(self, q: tCube, trans, frame):
-        self.status = "UNSATCORE REDUCTION" ; self.live.update(self.monitor_panel.get_table())
+        self.status = "UNSATCORE REDUCTION" 
+        if not self.silent: self.live.update(self.monitor_panel.get_table())
         start_time = time.time()
 
         l = Or(And(Not(q.cube()), trans, frame), self.initprime)
@@ -369,7 +403,8 @@ class PDR:
         return q
 
     def stateOf(self, tcube) -> tCube:
-        self.status = "SOLVING RELATIVE" ; self.live.update(self.monitor_panel.get_table())
+        self.status = "SOLVING RELATIVE" 
+        if not self.silent: self.live.update(self.monitor_panel.get_table())
         start_time = time.time()
         cubePrime = substitute(substitute(tcube.cube(), self.primeMap),self.inp_map)
         
@@ -388,7 +423,8 @@ class PDR:
             return None
 
     def generalize(self, prev_cube:tCube, next_cube_expr, prevF, use_ternary_sim=False):
-        self.status = "PREDECESSOR GENERALIZATION" ; self.live.update(self.monitor_panel.get_table())
+        self.status = "PREDECESSOR GENERALIZATION" 
+        if not self.silent: self.live.update(self.monitor_panel.get_table())
         start_time = time.time()
         tcube_cp = prev_cube.clone()
 
@@ -453,7 +489,8 @@ class PDR:
         return list(range(len(cubeLiterals)))
 
     def strengthen(self):
-        self.status = "OVER-APPROXIMATING" ; self.live.update(self.monitor_panel.get_table())
+        self.status = "OVER-APPROXIMATING" 
+        if not self.silent: self.live.update(self.monitor_panel.get_table())
         start_time = time.time()
         logging.info("seek for bad cube...")
         
