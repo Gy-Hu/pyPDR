@@ -240,21 +240,62 @@ class PDR:
             self.cti_queue_sizes.append(Q.qsize()) 
         return None
     
-    def mic(self, q: tCube, i: int, d: int = 1):
-        start_time = time.time()
-        q.cubeLiterals = self.frames[i].heuristic_lit_order(q.cubeLiterals, self.litOrderManager)
-        for idx in range(len(q.cubeLiterals)):
-            if self.micAttempts == 0:
-                break
-            if q.cubeLiterals[idx] is True:
-                continue
-            q_copy = q.delete(idx)
-            if self.ctgDown(q_copy, i, d):
-                q = q_copy
-            self.micAttempts -= 1
-        end_time = time.time()
-        self.sum_of_mic_time += end_time - start_time
+    def mic(self, q: tCube, i: int, d: int = 1, use_ctg_down=True):
+        start_time = time.time()  # Start timing
+        initial_size = q.true_size()
+        self.unsatcore_reduce(q, trans=self.trans.cube(), frame=self.frames[q.t - 1].cube())
+        q.remove_true()
+
+        if use_ctg_down:
+            q.cubeLiterals = self.frames[i].heuristic_lit_order(q.cubeLiterals, self.litOrderManager)
+            for idx in range(len(q.cubeLiterals)):
+                if self.micAttempts == 0:
+                    break
+                if q.cubeLiterals[idx] is True:
+                    continue
+                q_copy = q.delete(idx)
+                if self.ctgDown(q_copy, i, d):
+                    q = q_copy
+                self.micAttempts -= 1
+        else: # use down()
+            #q.cubeLiterals = self.frames[i].heuristic_lit_order(q.cubeLiterals, self.litOrderManager)
+            for i in range(len(q.cubeLiterals)):
+                if q.cubeLiterals[i] is True:
+                    continue
+                q1 = q.delete(i)
+                if self.down(q1):
+                    q = q1
+
+        q.remove_true()
+        final_size = q.true_size()
+        reduction_percentage = ((initial_size - final_size) / initial_size) * 100 if initial_size > 0 else 0
+        self.mic_reduction_percentages.append(reduction_percentage)
+        
+        end_time = time.time()  # End timing
+        time_taken = end_time - start_time
+        self.sum_of_mic_time += time_taken  # Update sum of MIC time
         return q
+
+    def down(self, q: tCube):
+        while True:
+            self.solver.push()
+            self.solver.add(self.frames[0].cube())
+            self.solver.add(q.cube())
+            if sat == self.solver.check():
+                self.solver.pop()
+                return False
+            self.solver.pop()
+
+            self.solver.push()
+            self.solver.add(And(self.frames[q.t - 1].cube(), Not(q.cube()), self.trans.cube(),
+                                substitute(substitute(q.cube(), self.primeMap), self.inp_map)))
+            if unsat == self.solver.check():
+                self.solver.pop()
+                return True
+            m = self.solver.model()
+            has_removed = q.join(m)
+            self.solver.pop()
+            assert (has_removed)
 
     def ctgDown(self, q: tCube, i: int, d: int) -> bool:
         ctgs = 0
