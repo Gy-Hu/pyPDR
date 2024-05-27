@@ -19,7 +19,9 @@ class Frame:
         #     return
         blocked_cube = Not(simplify(And(cube.cubeLiterals)))
         #assert str(blocked_cube) != 'False'
-        if blocked_cube == BoolVal(False): # the clause is always true -> Nothing to add
+        # if blocked_cube == BoolVal(False): # the clause is always true -> Nothing to add
+        #     return
+        if is_true(blocked_cube) == True:
             return
         self.Lemma.append(blocked_cube)
         self.pushed.append(pushed)
@@ -37,8 +39,11 @@ class Frame:
         litOrderManager.decay()
 
     def heuristic_lit_order(self, cube_literals, litOrderManager):
-        ordered_literals = sorted(cube_literals, key=lambda l: litOrderManager.counts.get(str(l.children()[0]), 0), reverse=True)
-        return ordered_literals
+        return sorted(
+            cube_literals,
+            key=lambda l: litOrderManager.counts.get(str(l.children()[0]), 0),
+            reverse=True,
+        )
 
     def __repr__(self):
         return str(sorted(self.Lemma, key=str))

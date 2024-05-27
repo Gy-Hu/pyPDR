@@ -231,6 +231,7 @@ class PDR:
                 s = self.mic(s, s.t)
                 self.sanity_checker._check_MIC(s)
                 assert len(s.cubeLiterals) != 0, "MIC produced an empty cube"
+                self.sanity_checker._debug_cex_is_not_none(s)
                 self.frames[s.t].block_cex(s, pushed=False, litOrderManager=self.litOrderManager)
                 for i in range(1, s.t):
                     self.frames[i].block_cex(s, pushed=True, litOrderManager=self.litOrderManager)
@@ -242,7 +243,7 @@ class PDR:
             self.cti_queue_sizes.append(Q.qsize()) 
         return None
     
-    def mic(self, q: tCube, i: int, d: int = 1, use_ctg_down=True):
+    def mic(self, q: tCube, i: int, d: int = 1, use_ctg_down=False):
         start_time = time.time()  # Start timing
         initial_size = q.true_size()
         self.unsatcore_reduce(q, trans=self.trans.cube(), frame=self.frames[q.t - 1].cube())
