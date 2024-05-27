@@ -42,7 +42,7 @@ class Frame:
         return sorted(
             cube_literals,
             key=lambda l: litOrderManager.counts.get(str(l.children()[0]), 0),
-            reverse=True,
+            reverse=False,
         )
 
     def __repr__(self):

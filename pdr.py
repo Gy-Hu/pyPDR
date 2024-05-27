@@ -261,7 +261,7 @@ class PDR:
                     q = q_copy
                 self.micAttempts -= 1
         else: # use down()
-            #q.cubeLiterals = self.frames[i].heuristic_lit_order(q.cubeLiterals, self.litOrderManager)
+            q.cubeLiterals = self.frames[i].heuristic_lit_order(q.cubeLiterals, self.litOrderManager)
             for i in range(len(q.cubeLiterals)):
                 if q.cubeLiterals[i] is True:
                     continue
