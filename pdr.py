@@ -21,12 +21,10 @@ class HeuristicLitOrder:
 
     def count(self, cube):
         assert len(cube) > 0
-        #self._mini = min(self._mini, cube[0].children()[0])
         for literal in cube:
             self.counts[str(literal.children()[0])] = self.counts.get(str(literal.children()[0]), 0) + 1
 
     def decay(self):
-        # for variable in 0 to max index of the keys in counts
         for var in self.counts.keys():
             self.counts[var] = self.counts.get(var, 0) * 0.99
 
@@ -57,7 +55,6 @@ class PDR:
         self.solver4generalization = Solver()
         self.maxDepth = 1
         self.maxCTGs = 3
-        # set this as infinity
         self.micAttempts = float('inf')
         self.litOrderManager = HeuristicLitOrder()
         self.status = "Running..."
@@ -79,44 +76,52 @@ class PDR:
         self.sum_of_unsatcore_reduce_time = 0
         self.cti_queue_sizes = []
         self.sum_of_sat_call = 0
+        self.live = Live(self.monitor_panel.get_table(), console=self.console, screen=True, refresh_per_second=2)
+        
+    def check_sat(self, assumptions, return_model=False, return_res=False):
+        self.status = "CHECKING SAT"
+        self.live.update(self.monitor_panel.get_table())
+        self.solver.push()
+        self.solver.add(assumptions)
+        res = self.solver.check()
+        self.sum_of_sat_call += 1
+
+        model = None
+        if res == sat and return_model: # return model T
+            model = self.solver.model() 
+        elif return_res: # return model F, return res T
+            model = res
+        
+        #assert model is not None, "Model is None" # both false
+
+        self.solver.pop()
+        
+        return model
+
 
     def check_init(self):
-        self.solver.push()
-        self.solver.add(self.init.cube())
-        self.solver.add(Not(self.post.cube()))
-        res1 = self.solver.check() ; self.sum_of_sat_call += 1
-        self.solver.pop()
-
-        if res1 == sat:
+        res1 = self.check_sat(And(self.init.cube(), Not(self.post.cube())), return_res=True)
+        if res1 != unsat:
             return False
 
-        self.solver.push()
-        self.solver.add(self.init.cube())
-        self.solver.add(self.trans.cube())
-        self.solver.add(substitute(substitute(Not(self.post.cube()), self.primeMap), self.inp_map))
-        res2 = self.solver.check() ; self.sum_of_sat_call += 1
-        self.solver.pop()
-
-        if res2 == sat:
+        res2 = self.check_sat(And(self.init.cube(), self.trans.cube(), substitute(substitute(Not(self.post.cube()), self.primeMap), self.inp_map)), return_res=True)
+        if res2 != unsat:
             return False
 
         return True
 
     def run(self):
-        
         if not self.check_init():
             self.status = "Found trace ending in bad state"
             return False
 
-        self.frames = list()
-        self.frames.append(Frame(lemmas=[self.init.cube()]))
-        self.frames.append(Frame(lemmas=[self.post.cube()]))
+        self.frames = [Frame(lemmas=[self.init.cube()]), Frame(lemmas=[self.post.cube()])]
         
         try:
-            with Live(self.monitor_panel.get_table(), console=self.console, screen=True, refresh_per_second=2) as live:
-                
+            with self.live:
                 while True:
-                    live.update(self.monitor_panel.get_table())
+                    self.status = "Running..."
+                    self.live.update(self.monitor_panel.get_table())
                     start_time = time.time()
                     c = self.strengthen()
                     if c is not None:
@@ -128,9 +133,8 @@ class PDR:
                             while not trace.empty():
                                 idx, cube = trace.get()
                                 self.console.print(cube)
-                            
-                            return False
-
+                            #return False
+                            break
                     else:
                         inv = self.checkForInduction()
                         if inv is not None:
@@ -146,62 +150,59 @@ class PDR:
                     end_time = time.time()
                     self.overall_runtime += end_time - start_time
                 while True:
-                    live.update(self.monitor_panel.get_table())
+                    self.live.update(self.monitor_panel.get_table())
         except KeyboardInterrupt:
             self.console.print(Panel("Exiting", style="bold yellow"))
     
     def checkForInduction(self):
-        start_time = time.time()  # Start timing
+        self.status = "CHECKING INDUCTION" ; self.live.update(self.monitor_panel.get_table())
+        start_time = time.time()
         Fi2 = self.frames[-2].cube()
         Fi = self.frames[-1].cube()
-        self.solver.push()
-        self.solver.add(Fi)
-        self.solver.add(Not(Fi2))
-        res = self.solver.check() ; self.sum_of_sat_call += 1
-        end_time = time.time()  # End timing
-        self.solver.pop()
-        self.sum_of_check_induction_time += end_time - start_time  # Update sum of check induction time
+        
+        res = self.check_sat(And(Fi, Not(Fi2)), return_res=True)
+        end_time = time.time()
+        self.sum_of_check_induction_time += end_time - start_time
+        
         if res == unsat:
             return Fi
         return None
 
-    def propagate(self, Fidx: int): # renamed from pushLemma()
+    def propagate(self, Fidx: int):
+        self.status = "PROPAGATING" ; self.live.update(self.monitor_panel.get_table())
         start_time = time.time()
         fi: Frame = self.frames[Fidx]
+        
         for lidx, c in enumerate(fi.Lemma):
             if fi.pushed[lidx]:
                 continue
             self.total_push_attempts += 1
-            self.solver.push()
-            self.solver.add(fi.cube())
-            self.solver.add(self.trans.cube())
-            self.solver.add(substitute(Not(substitute(c, self.primeMap)), self.inp_map))
-            tmp_res = self.solver.check() ; self.sum_of_sat_call += 1
-            if tmp_res == unsat:
+            res = self.check_sat(And(fi.cube(), self.trans.cube(), substitute(Not(substitute(c, self.primeMap)), self.inp_map)), return_res=True)
+            if res == unsat:
                 fi.pushed[lidx] = True
                 self.successful_pushes += 1
                 self.frames[Fidx + 1].addLemma(c, pushed=False)
-            self.solver.pop()
+        
         end_time = time.time()
         time_taken = end_time - start_time
         self.avg_propagation_times.append(time_taken)
         self.sum_of_propagate_time += time_taken
 
     def frame_trivially_block(self, st: tCube):
+        self.status = "CHECKING FRAME TRIVIALLY BLOCK" ; self.live.update(self.monitor_panel.get_table())
         start_time = time.time()
         Fidx = st.t
-        self.solver.push()
-        self.solver.add(self.frames[Fidx].cube())
-        self.solver.add(st.cube())
-        res = self.solver.check() ; self.sum_of_sat_call += 1
-        self.solver.pop()
+        
+        res = self.check_sat(And(self.frames[Fidx].cube(), st.cube()), return_res=True)
         end_time = time.time()
         self.sum_of_frame_trivially_block_time += end_time - start_time
+        
         if res == unsat:
             return True
         return False
 
-    def handleObligations(self, s0: tCube): # renamed from recBlockCube()
+    def handleObligations(self, s0: tCube):
+        self.status = "REFINING PROOF" ; self.live.update(self.monitor_panel.get_table())
         Q = PriorityQueue()
         logging.info("recBlockCube now...")
         Q.put((s0.t, s0))
@@ -244,7 +245,8 @@ class PDR:
         return None
     
     def mic(self, q: tCube, i: int, d: int = 1, use_ctg_down=False):
-        start_time = time.time()  # Start timing
+        self.status = "INDUCTIVE GENERALIZATION" ; self.live.update(self.monitor_panel.get_table())
+        start_time = time.time()
         initial_size = q.true_size()
         self.unsatcore_reduce(q, trans=self.trans.cube(), frame=self.frames[q.t - 1].cube())
         q.remove_true()
@@ -274,82 +276,53 @@ class PDR:
         reduction_percentage = ((initial_size - final_size) / initial_size) * 100 if initial_size > 0 else 0
         self.mic_reduction_percentages.append(reduction_percentage)
         
-        end_time = time.time()  # End timing
+        end_time = time.time()
         time_taken = end_time - start_time
-        self.sum_of_mic_time += time_taken  # Update sum of MIC time
+        self.sum_of_mic_time += time_taken
         return q
 
     def down(self, q: tCube):
-        while True:
-            self.solver.push()
-            self.solver.add(self.frames[0].cube())
-            self.solver.add(q.cube())
-            tmp_res = self.solver.check() ; self.sum_of_sat_call += 1
-            if tmp_res == sat:
-                self.solver.pop()
-                return False
-            self.solver.pop()
 
-            self.solver.push()
-            self.solver.add(And(self.frames[q.t - 1].cube(), Not(q.cube()), self.trans.cube(),
-                                substitute(substitute(q.cube(), self.primeMap), self.inp_map)))
-            tmp_res = self.solver.check() ; self.sum_of_sat_call += 1
+        while True:
+            tmp_res = self.check_sat(And(self.frames[0].cube(), q.cube()), return_res=True)
+            if tmp_res == sat:
+                return False
+
+            tmp_res = self.check_sat(And(self.frames[q.t - 1].cube(), Not(q.cube()), self.trans.cube(), substitute(substitute(q.cube(), self.primeMap), self.inp_map)), return_res=True)
             if tmp_res == unsat:
-                self.solver.pop()
                 return True
             m = self.solver.model()
             has_removed = q.join(m)
-            self.solver.pop()
             assert (has_removed)
 
     def ctgDown(self, q: tCube, i: int, d: int) -> bool:
         ctgs = 0
+        
         while True:
-            self.solver.push()
-            self.solver.add(self.init.cube())
-            self.solver.add(q.cube())
-            tmp_res = self.solver.check() ; self.sum_of_sat_call += 1
+            tmp_res = self.check_sat(And(self.init.cube(), q.cube()), return_res=True)
             if tmp_res == sat:
-                self.solver.pop()
                 return False
-            self.solver.pop()
 
-            self.solver.push()
-            self.solver.add(And(self.frames[i - 1].cube(), Not(q.cube()), self.trans.cube(), 
-                                substitute(substitute(q.cube(), self.primeMap), self.inp_map)))
-            tmp_res = self.solver.check() ; self.sum_of_sat_call += 1
+            tmp_res = self.check_sat(And(self.frames[i - 1].cube(), Not(q.cube()), self.trans.cube(), substitute(substitute(q.cube(), self.primeMap), self.inp_map)), return_res=True)
             if tmp_res == unsat:
-                self.solver.pop()
                 return True
             m = self.solver.model()
             s = tCube(i-1)
             s.addModel(self.lMap, m, remove_input=False)
             
             if d > self.maxDepth:
-                self.solver.pop()
                 return False
             
-            self.solver.push()
-            self.solver.add(self.init.cube())
-            self.solver.add(s.cube())
-            res_check_init = self.solver.check() ; self.sum_of_sat_call += 1
-            self.solver.pop()
+            res_check_init = self.check_sat(And(self.init.cube(), s.cube()), return_res=True)
+            res_check_relative = self.check_sat(And(self.frames[i - 1].cube(), Not(s.cube()), self.trans.cube(), substitute(substitute(Not(s.cube()), self.primeMap), self.inp_map)), return_res=True)
             
-            self.solver.push()
-            self.solver.add(And(self.frames[i - 1].cube(), Not(s.cube()), self.trans.cube(), 
-                                substitute(substitute(Not(s.cube()), self.primeMap), self.inp_map)))
-            res_check_relative = self.solver.check() ; self.sum_of_sat_call += 1
-            self.solver.pop()
             if ctgs < self.maxCTGs and i > 0 and (res_check_init == unsat) and (res_check_relative == unsat):
                 ctgs += 1
                 for j in range(i, len(self.frames)):
-                    self.solver.push()
-                    #if self.frames[j].cube() & Not(s.cube()) & self.trans.cube() !=> substitute(substitute(Not(s.cube()), self.primeMap), self.inp_map):
-                    if self.solver.check(And(self.frames[j].cube(), Not(s.cube()), self.trans.cube(), substitute(substitute(s.cube(), self.primeMap), self.inp_map))) == unsat:
-                        self.solver.pop()
+                    tmp_res = self.check_sat(And(self.frames[j].cube(), Not(s.cube()), self.trans.cube(), substitute(substitute(s.cube(), self.primeMap), self.inp_map)), return_res=True)
+                    if tmp_res == unsat:
                         break
                 s = self.mic(s, j-1, d+1)
-                #assert len(s.cubeLiterals) != 0
                 self.sanity_checker._debug_cex_is_not_none(s)
                 self.frames[j].block_cex(s, pushed=False)
             else:
@@ -360,7 +333,8 @@ class PDR:
             self.solver.pop()
 
     def unsatcore_reduce(self, q: tCube, trans, frame):
-        start_time = time.time()  # Start timing
+        self.status = "UNSATCORE REDUCTION" ; self.live.update(self.monitor_panel.get_table())
+        start_time = time.time()
 
         l = Or(And(Not(q.cube()), trans, frame), self.initprime)
         self.solver.push()
@@ -373,7 +347,8 @@ class PDR:
             self.solver.assert_and_track(substitute(substitute(literal, self.primeMap), self.inp_map), p)
             plist.append(p)
 
-        res = self.solver.check() ; self.sum_of_sat_call += 1
+        res = self.solver.check()
+        self.sum_of_sat_call += 1
         if res == sat:
             model = self.solver.model()
             print("Satisfying model:")
@@ -389,23 +364,17 @@ class PDR:
             if Bool(p) not in core:
                 q.cubeLiterals[idx] = True
 
-        end_time = time.time()  # End timing
-        self.sum_of_unsatcore_reduce_time += end_time - start_time  # Update sum of unsatcore reduce time
+        end_time = time.time()
+        self.sum_of_unsatcore_reduce_time += end_time - start_time
         return q
-    
-    def stateOf(self, tcube) -> tCube: # renamed from solveRelative()
+
+    def stateOf(self, tcube) -> tCube:
+        self.status = "SOLVING RELATIVE" ; self.live.update(self.monitor_panel.get_table())
         start_time = time.time()
         cubePrime = substitute(substitute(tcube.cube(), self.primeMap),self.inp_map)
-        self.solver.push()
-        self.solver.add(Not(tcube.cube()))
-        self.solver.add(self.frames[tcube.t - 1].cube())
-        self.solver.add(self.trans.cube())
-        self.solver.add(cubePrime)
         
-        tmp_res = self.solver.check() ; self.sum_of_sat_call += 1
-        if tmp_res == sat:
-            model = self.solver.model()
-            self.solver.pop()
+        model = self.check_sat(And(Not(tcube.cube()), self.frames[tcube.t - 1].cube(), self.trans.cube(), cubePrime), return_model=True)
+        if model is not None:
             c = tCube(tcube.t - 1)
             c.addModel(self.lMap, model, remove_input=False)
             generalized_p = self.generalize(c, next_cube_expr = tcube.cube(), prevF=self.frames[tcube.t-1].cube())
@@ -414,13 +383,13 @@ class PDR:
             self.sum_of_solve_relative_time += end_time - start_time
             return generalized_p
         else:
-            self.solver.pop()
             end_time = time.time()
             self.sum_of_solve_relative_time += end_time - start_time
             return None
 
-    def generalize(self, prev_cube:tCube, next_cube_expr, prevF, use_ternary_sim=False): # renamed from generalize_predecessor()
-        start_time = time.time()  # Start timing
+    def generalize(self, prev_cube:tCube, next_cube_expr, prevF, use_ternary_sim=False):
+        self.status = "PREDECESSOR GENERALIZATION" ; self.live.update(self.monitor_panel.get_table())
+        start_time = time.time()
         tcube_cp = prev_cube.clone()
 
         nextcube = substitute(substitute(substitute(next_cube_expr, self.primeMap),self.inp_map), list(self.pv2next.items()))
@@ -431,7 +400,8 @@ class PDR:
         for index, literals in enumerate(tcube_cp.cubeLiterals):
             self.solver.assert_and_track(literals,'p'+str(index))
         self.solver.add(Not(nextcube))
-        tmp_res = self.solver.check() ; self.sum_of_sat_call += 1
+        tmp_res = self.solver.check()
+        self.sum_of_sat_call += 1
         assert(tmp_res== unsat)
         core = self.solver.unsat_core()
         core = [str(core[i]) for i in range(0, len(core), 1)]
@@ -445,25 +415,18 @@ class PDR:
         tcube_cp.remove_true()
         final_size = len(tcube_cp.cubeLiterals)
         reduction_percentage = ((initial_size - final_size) / initial_size) * 100 if initial_size > 0 else 0
-        self.predecessor_generalization_reduction_percentages.append(reduction_percentage)  # Track reduction percentage
+        self.predecessor_generalization_reduction_percentages.append(reduction_percentage)
         
-        # Restore the state of self.solver
         self.solver.pop()
 
         if use_ternary_sim:
-            # On-demand loading of the logic cone
             simulator = self.ternary_simulator.clone()
             simulator.register_expr(nextcube)
             simulator.set_initial_var_assignment(dict([_extract(c) for c in tcube_cp.cubeLiterals]))
 
-            # Heuristic-based variable ordering
             variable_order = self.get_variable_order(tcube_cp.cubeLiterals)
             
-            # order using self.litOrderManager
-            #variable_order = self.frames[tcube_cp.t].heuristic_lit_order(tcube_cp.cubeLiterals, self.litOrderManager)
-
-            # Early termination condition
-            max_iterations = len(tcube_cp.cubeLiterals) // 2  # Terminate after processing half of the variables
+            max_iterations = len(tcube_cp.cubeLiterals) // 2
 
             for i, idx in enumerate(variable_order):
                 if i >= max_iterations:
@@ -481,47 +444,32 @@ class PDR:
 
             tcube_cp.remove_true()
 
-        end_time = time.time()  # End timing
+        end_time = time.time()
         time_taken = end_time - start_time
-        self.sum_of_predecessor_generalization_time += time_taken  # Update sum of generalization time
+        self.sum_of_predecessor_generalization_time += time_taken
         return tcube_cp
 
     def get_variable_order(self, cubeLiterals):
-        # Implement heuristic-based variable ordering logic here
-        # Return the indices of the variables in the desired order
-        
         return list(range(len(cubeLiterals)))
-        
-        # return the indices of the variables in the order of the heuristic_lit_order
-        # ranking_indices = []
-        # for i in range(len(cubeLiterals)):
-        #     rank = self.litOrderManager.counts.get(str(cubeLiterals[i].children()[0]), 0)
-        #     ranking_indices.append(int(rank)) 
-        # return ranking_indices
 
-    def strengthen(self): # renamed from getBadcube()
+    def strengthen(self):
+        self.status = "OVER-APPROXIMATING" ; self.live.update(self.monitor_panel.get_table())
         start_time = time.time()
         logging.info("seek for bad cube...")
-        self.solver.push()
-        self.solver.add(substitute(substitute(Not(self.post.cube()), self.primeMap),self.inp_map))
-        self.solver.add(self.frames[-1].cube())
-        self.solver.add(self.trans.cube())
         
-        res = self.solver.check() ; self.sum_of_sat_call += 1
+        model = self.check_sat(And(substitute(substitute(Not(self.post.cube()), self.primeMap),self.inp_map), self.frames[-1].cube(), self.trans.cube()), return_model=True)
         end_time = time.time()
         self.sum_of_cti_producing_time += end_time - start_time
         
-        if res == sat:
+        if model is not None:
             res = tCube(len(self.frames) - 1)
-            res.addModel(self.lMap, self.solver.model(), remove_input=False)
-            self.solver.pop()
+            res.addModel(self.lMap, model, remove_input=False)
             self.sanity_checker._debug_c_is_predecessor(res.cube(), self.trans.cube(), self.frames[-1].cube(), substitute(substitute(self.post.cube(), self.primeMap),self.inp_map))
             new_model = self.generalize(res, Not(self.post.cube()), self.frames[-1].cube())
             self.sanity_checker._debug_c_is_predecessor(new_model.cube(), self.trans.cube(), self.frames[-1].cube(), substitute(substitute(self.post.cube(), self.primeMap),self.inp_map))
             new_model.remove_input()
             return new_model
         else:
-            self.solver.pop()
             return None
     
 if __name__ == '__main__':

@@ -51,11 +51,11 @@ class MonitorPannel:
         table2.add_column("Pushed", style="green")
         table2.add_column("Ratio", style="yellow")
 
-        # Display information for the latest 10 frames
+        # Display information for the latest 17 frames
         start_frame = max(1, len(self.pdr.frames) - 17)
         for index in range(start_frame, len(self.pdr.frames)):
             push_cnt = self.pdr.frames[index].pushed.count(True)
-            table2.add_row(f"{index}", str(len(self.pdr.frames[index].Lemma)), str(push_cnt), f"{push_cnt / len(self.pdr.frames[index].Lemma) * 100:.2f}")
+            table2.add_row(f"{index}", str(len(self.pdr.frames[index].Lemma)), str(push_cnt), f"{push_cnt / len(self.pdr.frames[index].Lemma) * 100:.2f}") if len(self.pdr.frames[index].Lemma) > 0 else table2.add_row(f"{index}", "0", "0", "0")
             
         # Create a line plot for CTI queue size changes
         cti_plot = acp.plot(self.pdr.cti_queue_sizes[-20:])
