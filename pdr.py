@@ -14,8 +14,24 @@ from rich.panel import Panel
 
 logging.basicConfig(filename='pdr.log', level=logging.INFO, format='%(message)s')
 
+class HeuristicLitOrder:
+    def __init__(self):
+        self.counts = {}
+        self._mini = float('inf')
+
+    def count(self, cube):
+        assert len(cube) > 0
+        #self._mini = min(self._mini, cube[0].children()[0])
+        for literal in cube:
+            self.counts[str(literal.children()[0])] = self.counts.get(str(literal.children()[0]), 0) + 1
+
+    def decay(self):
+        # for variable in 0 to max index of the keys in counts
+        for var in self.counts.keys():
+            self.counts[var] = self.counts.get(var, 0) * 0.99
+
 class PDR:
-    def __init__(self, primary_inputs, literals, primes, init, trans, post, pv2next, primes_inp, filename, debug=True):
+    def __init__(self, primary_inputs, literals, primes, init, trans, post, pv2next, primes_inp, filename, debug=False):
         self.console = Console()
         self.enable_assert = True
         self.primary_inputs = primary_inputs
@@ -39,8 +55,11 @@ class PDR:
         self.filename = filename
         self.solver = Solver()
         self.solver4generalization = Solver()
-        self.maxDepth = 10
-        self.maxCTGs = 10
+        self.maxDepth = 1
+        self.maxCTGs = 3
+        # set this as infinity
+        self.micAttempts = float('inf')
+        self.litOrderManager = HeuristicLitOrder()
         self.status = "Running..."
         
         # measurement variables
@@ -159,7 +178,7 @@ class PDR:
             if self.solver.check() == unsat:
                 fi.pushed[lidx] = True
                 self.successful_pushes += 1
-                self.frames[Fidx + 1].add(c)
+                self.frames[Fidx + 1].addLemma(c, pushed=False)
             self.solver.pop()
         end_time = time.time()
         time_taken = end_time - start_time
@@ -209,9 +228,10 @@ class PDR:
                 q4unsatcore.remove_true()
                 s = self.mic(s, s.t)
                 self.sanity_checker._check_MIC(s)
-                self.frames[s.t].add(Not(s.cube()), pushed=False)
+                assert len(s.cubeLiterals) != 0, "MIC produced an empty cube"
+                self.frames[s.t].add(s, pushed=False, litOrderManager=self.litOrderManager)
                 for i in range(1, s.t):
-                    self.frames[i].add(Not(s.cube()), pushed=True)
+                    self.frames[i].add(s, pushed=True, litOrderManager=self.litOrderManager)
 
             else:
                 assert (z.t == s.t - 1)
@@ -222,12 +242,16 @@ class PDR:
     
     def mic(self, q: tCube, i: int, d: int = 1):
         start_time = time.time()
+        q.cubeLiterals = self.frames[i].heuristic_lit_order(q.cubeLiterals, self.litOrderManager)
         for idx in range(len(q.cubeLiterals)):
+            if self.micAttempts == 0:
+                break
             if q.cubeLiterals[idx] is True:
                 continue
             q_copy = q.delete(idx)
             if self.ctgDown(q_copy, i, d):
                 q = q_copy
+            self.micAttempts -= 1
         end_time = time.time()
         self.sum_of_mic_time += end_time - start_time
         return q
@@ -277,7 +301,8 @@ class PDR:
                         self.solver.pop()
                         break
                 s = self.mic(s, j-1, d+1)
-                self.frames[j].add(Not(s.cube()), pushed=False)
+                #assert len(s.cubeLiterals) != 0
+                self.frames[j].add(s, pushed=False)
             else:
                 ctgs = 0
                 has_removed = q.join(m)
@@ -349,8 +374,7 @@ class PDR:
         tcube_cp = prev_cube.clone()
 
         nextcube = substitute(substitute(substitute(next_cube_expr, self.primeMap),self.inp_map), list(self.pv2next.items()))
-
-        #FIXME: if use the self.solver() here will encounter bug
+        
         self.solver.push()
 
         self.solver.set(unsat_core=True)
