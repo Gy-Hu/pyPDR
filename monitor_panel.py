@@ -41,6 +41,7 @@ class MonitorPannel:
         table1.add_row("Overall Push Success Rate (%)", f"{overall_push_success_rate:.2f}", "")
         table1.add_row("Current Frame", str(len(self.pdr.frames) - 1), "")
         table1.add_row("Total Frames", str(len(self.pdr.frames)), "")
+        table1.add_row("Total SAT Calls", str(self.pdr.sum_of_sat_call), "")
 
         
         

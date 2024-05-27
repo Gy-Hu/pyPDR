@@ -78,12 +78,13 @@ class PDR:
         self.sum_of_frame_trivially_block_time = 0
         self.sum_of_unsatcore_reduce_time = 0
         self.cti_queue_sizes = []
+        self.sum_of_sat_call = 0
 
     def check_init(self):
         self.solver.push()
         self.solver.add(self.init.cube())
         self.solver.add(Not(self.post.cube()))
-        res1 = self.solver.check()
+        res1 = self.solver.check() ; self.sum_of_sat_call += 1
         self.solver.pop()
 
         if res1 == sat:
@@ -93,7 +94,7 @@ class PDR:
         self.solver.add(self.init.cube())
         self.solver.add(self.trans.cube())
         self.solver.add(substitute(substitute(Not(self.post.cube()), self.primeMap), self.inp_map))
-        res2 = self.solver.check()
+        res2 = self.solver.check() ; self.sum_of_sat_call += 1
         self.solver.pop()
 
         if res2 == sat:
@@ -156,7 +157,7 @@ class PDR:
         self.solver.push()
         self.solver.add(Fi)
         self.solver.add(Not(Fi2))
-        res = self.solver.check()
+        res = self.solver.check() ; self.sum_of_sat_call += 1
         end_time = time.time()  # End timing
         self.solver.pop()
         self.sum_of_check_induction_time += end_time - start_time  # Update sum of check induction time
@@ -168,14 +169,15 @@ class PDR:
         start_time = time.time()
         fi: Frame = self.frames[Fidx]
         for lidx, c in enumerate(fi.Lemma):
-            self.total_push_attempts += 1
             if fi.pushed[lidx]:
                 continue
+            self.total_push_attempts += 1
             self.solver.push()
             self.solver.add(fi.cube())
             self.solver.add(self.trans.cube())
             self.solver.add(substitute(Not(substitute(c, self.primeMap)), self.inp_map))
-            if self.solver.check() == unsat:
+            tmp_res = self.solver.check() ; self.sum_of_sat_call += 1
+            if tmp_res == unsat:
                 fi.pushed[lidx] = True
                 self.successful_pushes += 1
                 self.frames[Fidx + 1].addLemma(c, pushed=False)
@@ -191,7 +193,7 @@ class PDR:
         self.solver.push()
         self.solver.add(self.frames[Fidx].cube())
         self.solver.add(st.cube())
-        res = self.solver.check()
+        res = self.solver.check() ; self.sum_of_sat_call += 1
         self.solver.pop()
         end_time = time.time()
         self.sum_of_frame_trivially_block_time += end_time - start_time
@@ -281,7 +283,8 @@ class PDR:
             self.solver.push()
             self.solver.add(self.frames[0].cube())
             self.solver.add(q.cube())
-            if sat == self.solver.check():
+            tmp_res = self.solver.check() ; self.sum_of_sat_call += 1
+            if tmp_res == sat:
                 self.solver.pop()
                 return False
             self.solver.pop()
@@ -289,7 +292,8 @@ class PDR:
             self.solver.push()
             self.solver.add(And(self.frames[q.t - 1].cube(), Not(q.cube()), self.trans.cube(),
                                 substitute(substitute(q.cube(), self.primeMap), self.inp_map)))
-            if unsat == self.solver.check():
+            tmp_res = self.solver.check() ; self.sum_of_sat_call += 1
+            if tmp_res == unsat:
                 self.solver.pop()
                 return True
             m = self.solver.model()
@@ -303,7 +307,8 @@ class PDR:
             self.solver.push()
             self.solver.add(self.init.cube())
             self.solver.add(q.cube())
-            if sat == self.solver.check():
+            tmp_res = self.solver.check() ; self.sum_of_sat_call += 1
+            if tmp_res == sat:
                 self.solver.pop()
                 return False
             self.solver.pop()
@@ -311,7 +316,8 @@ class PDR:
             self.solver.push()
             self.solver.add(And(self.frames[i - 1].cube(), Not(q.cube()), self.trans.cube(), 
                                 substitute(substitute(q.cube(), self.primeMap), self.inp_map)))
-            if unsat == self.solver.check():
+            tmp_res = self.solver.check() ; self.sum_of_sat_call += 1
+            if tmp_res == unsat:
                 self.solver.pop()
                 return True
             m = self.solver.model()
@@ -325,13 +331,13 @@ class PDR:
             self.solver.push()
             self.solver.add(self.init.cube())
             self.solver.add(s.cube())
-            res_check_init = self.solver.check()
+            res_check_init = self.solver.check() ; self.sum_of_sat_call += 1
             self.solver.pop()
             
             self.solver.push()
             self.solver.add(And(self.frames[i - 1].cube(), Not(s.cube()), self.trans.cube(), 
                                 substitute(substitute(Not(s.cube()), self.primeMap), self.inp_map)))
-            res_check_relative = self.solver.check()
+            res_check_relative = self.solver.check() ; self.sum_of_sat_call += 1
             self.solver.pop()
             if ctgs < self.maxCTGs and i > 0 and (res_check_init == unsat) and (res_check_relative == unsat):
                 ctgs += 1
@@ -365,7 +371,7 @@ class PDR:
             self.solver.assert_and_track(substitute(substitute(literal, self.primeMap), self.inp_map), p)
             plist.append(p)
 
-        res = self.solver.check()
+        res = self.solver.check() ; self.sum_of_sat_call += 1
         if res == sat:
             model = self.solver.model()
             print("Satisfying model:")
@@ -394,7 +400,8 @@ class PDR:
         self.solver.add(self.trans.cube())
         self.solver.add(cubePrime)
         
-        if self.solver.check() == sat:
+        tmp_res = self.solver.check() ; self.sum_of_sat_call += 1
+        if tmp_res == sat:
             model = self.solver.model()
             self.solver.pop()
             c = tCube(tcube.t - 1)
@@ -422,7 +429,8 @@ class PDR:
         for index, literals in enumerate(tcube_cp.cubeLiterals):
             self.solver.assert_and_track(literals,'p'+str(index))
         self.solver.add(Not(nextcube))
-        assert(self.solver.check() == unsat)
+        tmp_res = self.solver.check() ; self.sum_of_sat_call += 1
+        assert(tmp_res== unsat)
         core = self.solver.unsat_core()
         core = [str(core[i]) for i in range(0, len(core), 1)]
 
@@ -497,7 +505,7 @@ class PDR:
         self.solver.add(self.frames[-1].cube())
         self.solver.add(self.trans.cube())
         
-        res = self.solver.check()
+        res = self.solver.check() ; self.sum_of_sat_call += 1
         end_time = time.time()
         self.sum_of_cti_producing_time += end_time - start_time
         
