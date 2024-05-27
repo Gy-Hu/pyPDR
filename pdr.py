@@ -448,6 +448,9 @@ class PDR:
 
             # Heuristic-based variable ordering
             variable_order = self.get_variable_order(tcube_cp.cubeLiterals)
+            
+            # order using self.litOrderManager
+            #variable_order = self.frames[tcube_cp.t].heuristic_lit_order(tcube_cp.cubeLiterals, self.litOrderManager)
 
             # Early termination condition
             max_iterations = len(tcube_cp.cubeLiterals) // 2  # Terminate after processing half of the variables
@@ -476,7 +479,15 @@ class PDR:
     def get_variable_order(self, cubeLiterals):
         # Implement heuristic-based variable ordering logic here
         # Return the indices of the variables in the desired order
+        
         return list(range(len(cubeLiterals)))
+        
+        # return the indices of the variables in the order of the heuristic_lit_order
+        # ranking_indices = []
+        # for i in range(len(cubeLiterals)):
+        #     rank = self.litOrderManager.counts.get(str(cubeLiterals[i].children()[0]), 0)
+        #     ranking_indices.append(int(rank)) 
+        # return ranking_indices
 
     def strengthen(self): # renamed from getBadcube()
         start_time = time.time()
