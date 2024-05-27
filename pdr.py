@@ -231,9 +231,9 @@ class PDR:
                 s = self.mic(s, s.t)
                 self.sanity_checker._check_MIC(s)
                 assert len(s.cubeLiterals) != 0, "MIC produced an empty cube"
-                self.frames[s.t].add(s, pushed=False, litOrderManager=self.litOrderManager)
+                self.frames[s.t].block_cex(s, pushed=False, litOrderManager=self.litOrderManager)
                 for i in range(1, s.t):
-                    self.frames[i].add(s, pushed=True, litOrderManager=self.litOrderManager)
+                    self.frames[i].block_cex(s, pushed=True, litOrderManager=self.litOrderManager)
 
             else:
                 assert (z.t == s.t - 1)
@@ -349,7 +349,8 @@ class PDR:
                         break
                 s = self.mic(s, j-1, d+1)
                 #assert len(s.cubeLiterals) != 0
-                self.frames[j].add(s, pushed=False)
+                self.sanity_checker._debug_cex_is_not_none(s)
+                self.frames[j].block_cex(s, pushed=False)
             else:
                 ctgs = 0
                 has_removed = q.join(m)

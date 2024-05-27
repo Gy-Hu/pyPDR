@@ -12,15 +12,16 @@ class Frame:
         #TODO: Simplify this?
         return And(self.Lemma)
 
-    def add(self, cube, pushed=False, litOrderManager=None):
-        cube.remove_true()
+    def block_cex(self, cube, pushed=False, litOrderManager=None):
+        #cube.remove_true()
         #assert len(cube.cubeLiterals) != 0
         # if len(cube.cubeLiterals) == 0:
         #     return
-        clause = Not(simplify(And(cube.cubeLiterals)))
-        if str(clause) == 'False':
+        blocked_cube = Not(simplify(And(cube.cubeLiterals)))
+        #assert str(blocked_cube) != 'False'
+        if blocked_cube == BoolVal(False): # the clause is always true -> Nothing to add
             return
-        self.Lemma.append(clause)
+        self.Lemma.append(blocked_cube)
         self.pushed.append(pushed)
         self.updateLitOrder(cube, litOrderManager)
     

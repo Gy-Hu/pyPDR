@@ -28,6 +28,13 @@ class SanityChecker:
         s.add(not_cp)
         assert (s.check() == unsat)
         
+    def _debug_cex_is_not_none(self, st: tCube):
+        if not self.pdr.debug:
+            return
+        tCube.remove_true() # e.g. [True, v14==False, v12==True]
+        assert len(tCube.cubeLiterals) != 0 # e.g. assert [] is not happening after remove_true()
+        assert BoolVal(False) != Not(simplify(And(tCube.cubeLiterals))) # e.g. assert True != Not(False) is not happening
+        
     def _check_MIC(self, st:tCube):
         if not self.pdr.debug:
             return
