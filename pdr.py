@@ -29,7 +29,7 @@ class HeuristicLitOrder:
             self.counts[var] = self.counts.get(var, 0) * 0.99
 
 class PDR:
-    def __init__(self, primary_inputs, literals, primes, init, trans, post, pv2next, primes_inp, filename, debug=False, silent=True):
+    def __init__(self, primary_inputs, literals, primes, init, trans, post, pv2next, primes_inp, latch2innards, filename, debug=False, silent=False):
         self.console = Console()
         self.enable_assert = True
         self.primary_inputs = primary_inputs
@@ -58,6 +58,7 @@ class PDR:
         self.micAttempts = float('inf')
         self.litOrderManager = HeuristicLitOrder()
         self.silent = silent # mode of monitor panel
+        self.latch2innards = latch2innards
         self.status = "Running..."
         
         # measurement variables
@@ -297,12 +298,23 @@ class PDR:
                 self.micAttempts -= 1
         else: # use down()
             q.cubeLiterals = self.frames[i].heuristic_lit_order(q.cubeLiterals, self.litOrderManager)
-            for i in range(len(q.cubeLiterals)):
-                if q.cubeLiterals[i] is True:
+            for idx in range(len(q.cubeLiterals)):
+                if q.cubeLiterals[idx] is True:
                     continue
-                q1 = q.delete(i)
+                q1 = q.delete(idx)
                 if self.down(q1):
                     q = q1
+                else:
+                    # Try replacing the literal with innards
+                    print("Trying to replace literal with innards...")
+                    var, _ = _extract(q.cubeLiterals[idx])
+                    if var in self.latch2innards:
+                        for innard in self.latch2innards[var]:
+                            q2 = q.clone()
+                            q2.cubeLiterals[idx] = innard
+                            if self.down(q2):
+                                q = q2
+                                break
 
         q.remove_true()
         final_size = q.true_size()
@@ -321,12 +333,14 @@ class PDR:
             if tmp_res == sat:
                 return False
 
-            tmp_res = self.check_sat(And(self.frames[q.t - 1].cube(), Not(q.cube()), self.trans.cube(), substitute(substitute(q.cube(), self.primeMap), self.inp_map)), return_res=True)
-            if tmp_res == unsat:
+            model = self.check_sat(And(self.frames[q.t - 1].cube(), Not(q.cube()), self.trans.cube(), substitute(substitute(q.cube(), self.primeMap), self.inp_map)), return_model=True)
+            if model is None:
                 return True
-            m = self.solver.model()
-            has_removed = q.join(m)
-            assert (has_removed)
+            q.remove_true()
+            has_removed = q.join(model)
+            if has_removed == 'NOT_AVAILABLE':
+                return True
+            #assert (has_removed)
 
     def ctgDown(self, q: tCube, i: int, d: int) -> bool:
         ctgs = 0
@@ -363,7 +377,7 @@ class PDR:
                 has_removed = q.join(m)
                 assert(has_removed)
                 
-            self.solver.pop()
+            #self.solver.pop()
 
     def unsatcore_reduce(self, q: tCube, trans, frame):
         self.status = "UNSATCORE REDUCTION" 
