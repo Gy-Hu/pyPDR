@@ -150,7 +150,6 @@ class Model:
         self.pv2next = dict()
         self.inp_prime = []
         self.filename = ''
-        self.latch_to_innards = {}
 
     def parse(self, fileName):
         '''
@@ -187,7 +186,6 @@ class Model:
         vs = dict()
         self.vars = list()
         for it in l:
-            # .... Original code
             if ann_i < len(annotations):
                 name = "v" + it.var + "[" + annotations[ann_i] + "]"
             else:
@@ -195,8 +193,6 @@ class Model:
             ann_i += 1
             vs[it.var] = Bool(name)
             self.vars.append(vs[it.var])
-            
-        
 
         # vars' of latch
         pvs = dict()
@@ -266,16 +262,6 @@ class Model:
                     exit(1)
 
             ands[it.lhs] = And(rs0, rs1)
-            
-        # latch_to_innards    
-        for it in l:
-            # Create the latch_to_innards mapping
-            latch = vs[it.var]
-            self.latch_to_innards[latch] = []
-            if it.next != "0" and it.next != "1":
-                v = it.next if int(it.next) & 1 == 0 else str(int(it.next) - 1)
-                if v in ands.keys():
-                    self.latch_to_innards[latch].append(ands[v])
 
         # initial condition, init = And(inits{Bool(latch_node)})
         inits_var = list()
@@ -381,13 +367,12 @@ class Model:
         #             exit(1)
         #print("postadd")
         #print("property items: ",property_items)
-        self.post.addAnds(property_items) 
-        #TODO: 修复这里识别不出bad state的问题，目前只有源文件btor用btor2tools转aiger的文件可以正常被parse
+        self.post.addAnds(property_items) #TODO: 修复这里识别不出bad state的问题，目前只有源文件btor用btor2tools转aiger的文件可以正常被parse
         # self.post.add(Or(vs['54'], vs['66'], Not(vs['68']), Not(vs['56'])))
         # print("postAdded")
         #print("self.inputs: ",self.inputs)
         #print("self.vars: ",self.vars)
-        return self.inputs, self.vars, self.primed_vars, self.init, self.trans, self.post, self.pv2next, self.inp_prime, self.latch_to_innards, self.filename
+        return self.inputs, self.vars, self.primed_vars, self.init, self.trans, self.post, self.pv2next, self.inp_prime, self.filename
 
 
 if __name__ == '__main__':

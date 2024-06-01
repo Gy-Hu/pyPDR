@@ -29,7 +29,7 @@ class HeuristicLitOrder:
             self.counts[var] = self.counts.get(var, 0) * 0.99
 
 class PDR:
-    def __init__(self, primary_inputs, literals, primes, init, trans, post, pv2next, primes_inp, latch2innards, filename, debug=False, silent=False):
+    def __init__(self, primary_inputs, literals, primes, init, trans, post, pv2next, primes_inp, filename, debug=False, silent=True):
         self.console = Console()
         self.enable_assert = True
         self.primary_inputs = primary_inputs
@@ -58,7 +58,6 @@ class PDR:
         self.micAttempts = float('inf')
         self.litOrderManager = HeuristicLitOrder()
         self.silent = silent # mode of monitor panel
-        self.latch2innards = latch2innards
         self.status = "Running..."
         
         # measurement variables
@@ -91,6 +90,7 @@ class PDR:
         model = None
         if res == sat and return_model: # return model T
             model = self.solver.model() 
+            assert len(model) != 0, "Model extraction failed"
         elif return_res: # return model F, return res T
             model = res
         
@@ -298,23 +298,12 @@ class PDR:
                 self.micAttempts -= 1
         else: # use down()
             q.cubeLiterals = self.frames[i].heuristic_lit_order(q.cubeLiterals, self.litOrderManager)
-            for idx in range(len(q.cubeLiterals)):
-                if q.cubeLiterals[idx] is True:
+            for i in range(len(q.cubeLiterals)):
+                if q.cubeLiterals[i] is True:
                     continue
-                q1 = q.delete(idx)
+                q1 = q.delete(i)
                 if self.down(q1):
                     q = q1
-                else:
-                    # Try replacing the literal with innards
-                    print("Trying to replace literal with innards...")
-                    var, _ = _extract(q.cubeLiterals[idx])
-                    if var in self.latch2innards:
-                        for innard in self.latch2innards[var]:
-                            q2 = q.clone()
-                            q2.cubeLiterals[idx] = innard
-                            if self.down(q2):
-                                q = q2
-                                break
 
         q.remove_true()
         final_size = q.true_size()
@@ -334,13 +323,11 @@ class PDR:
                 return False
 
             model = self.check_sat(And(self.frames[q.t - 1].cube(), Not(q.cube()), self.trans.cube(), substitute(substitute(q.cube(), self.primeMap), self.inp_map)), return_model=True)
-            if model is None:
+            if model is None: # unsat
                 return True
-            q.remove_true()
+            #q.remove_true()
             has_removed = q.join(model)
-            if has_removed == 'NOT_AVAILABLE':
-                return True
-            #assert (has_removed)
+            assert (has_removed)
 
     def ctgDown(self, q: tCube, i: int, d: int) -> bool:
         ctgs = 0
@@ -350,12 +337,11 @@ class PDR:
             if tmp_res == sat:
                 return False
 
-            tmp_res = self.check_sat(And(self.frames[i - 1].cube(), Not(q.cube()), self.trans.cube(), substitute(substitute(q.cube(), self.primeMap), self.inp_map)), return_res=True)
-            if tmp_res == unsat:
+            model = self.check_sat(And(self.frames[i - 1].cube(), Not(q.cube()), self.trans.cube(), substitute(substitute(q.cube(), self.primeMap), self.inp_map)), return_model=True)
+            if model is None: # unsat
                 return True
-            m = self.solver.model()
             s = tCube(i-1)
-            s.addModel(self.lMap, m, remove_input=False)
+            s.addModel(self.lMap, model, remove_input=False)
             
             if d > self.maxDepth:
                 return False
@@ -374,9 +360,9 @@ class PDR:
                 self.frames[j].block_cex(s, pushed=False)
             else:
                 ctgs = 0
-                has_removed = q.join(m)
+                #q.remove_true()
+                has_removed = q.join(model)
                 assert(has_removed)
-                
             #self.solver.pop()
 
     def unsatcore_reduce(self, q: tCube, trans, frame):
@@ -399,6 +385,7 @@ class PDR:
         self.sum_of_sat_call += 1
         if res == sat:
             model = self.solver.model()
+            assert len(model) != 0, "Model extraction failed"
             print("Satisfying model:")
             for var in model:
                 print(f"{var} = {model[var]}")

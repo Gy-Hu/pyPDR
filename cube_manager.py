@@ -10,9 +10,7 @@ def _extract(literaleq):
         v = children[0]
         val = children[1]
     else:
-        v = "NOT_AVAILABLE" # impact innards
-        val = "NOT_AVAILABLE"
-        #assert(False)
+        assert(False)
     return v, val
 
 class tCube:
@@ -83,9 +81,6 @@ class tCube:
             if literal is True:
                 continue
             var, val = _extract(literal)
-            # return when var, val both are NOT_AVAILABLE
-            if (str(var) == "NOT_AVAILABLE") and (str(val) == "NOT_AVAILABLE"):
-                return "NOT_AVAILABLE"
             var = str(var)
             assert(var[0] == 'v')
             if var not in model:
