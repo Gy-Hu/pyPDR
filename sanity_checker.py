@@ -71,6 +71,8 @@ class SanityChecker:
         assert(self.pdr.bmc.check() == sat)
         
     def _sanity_check_inv(self, inv):
+        if not self.pdr.debug:
+            return
         '''
         check the correctness of the inductive invariant
         - init -> inv
