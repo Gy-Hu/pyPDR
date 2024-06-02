@@ -9,29 +9,25 @@ import csv
 from datetime import datetime
 
 class MonitorPannel:
-    def __init__(self, pdr):
+    def __init__(self, pdr, enable_logging=True):
         self.pdr = pdr
+        self.enable_logging = enable_logging
         self.time_stamp = datetime.now().strftime("%Y-%m-%d-%H:%M:%S")
-        self.csv_file_path = self.get_csv_file_path()
+        self.csv_file_path = self.get_csv_file_path() if enable_logging else None
         
     def get_csv_file_path(self):
         log_dir = "./logs/"
         os.makedirs(log_dir, exist_ok=True)
-        #return os.path.join(log_dir, "pdr_log.csv")
-        # add timestamp to the csv file name
         return os.path.join(log_dir, f"pdr_log_{self.time_stamp}.csv")
     
     def write_to_csv(self, data):
-        file_exists = os.path.isfile(self.csv_file_path)
-        with open(self.csv_file_path, "a", newline="") as csv_file:
-            writer = csv.writer(csv_file)
-            # if not file_exists:
-            #     writer.writerow(["Timestamp", "Variable", "Value", "Percentage (%)"])
-            #timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            # accurate timestamp
-            timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")
-            for variable, value, percentage in data:
-                writer.writerow([timestamp, variable, value, percentage])
+        if self.enable_logging:
+            file_exists = os.path.isfile(self.csv_file_path)
+            with open(self.csv_file_path, "a", newline="") as csv_file:
+                writer = csv.writer(csv_file)
+                timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")
+                for variable, value, percentage in data:
+                    writer.writerow([timestamp, variable, value, percentage])
 
     def get_table(self):
         table1 = Table(title="PDR Algorithm Status")
@@ -119,7 +115,7 @@ class MonitorPannel:
         frame_numbers = list(range(1, len(self.pdr.frames)))
         lemma_count_plot = acp.plot(lemma_counts[:], {'height': 5, 'X': len(self.pdr.frames)})
         
-        if self.pdr.status not in ["FOUND TRACE", "FOUND INV"]:
+        if self.pdr.status not in ["FOUND TRACE", "FOUND INV"] and self.enable_logging:
             # Collect the data
             data = [
                 ["Engine Status", self.pdr.status, ""],
