@@ -11,7 +11,7 @@
 - cube and frame management system (add, join, push, etc.)
 - unsat core extraction for inductive generalization and predecessor generalization
 - infinite mic attempt (suggestion from arbrad)
-- literals ordering according to their appearance in the trace (frequency)
+- literals ordering according to their appearance in the trace (frequency), both in predecessor generalization (ternary sim) and inductive generalization (mic)
 
 ## Techniques I haven't tried - but should
 
