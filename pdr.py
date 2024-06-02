@@ -29,7 +29,7 @@ class HeuristicLitOrder:
             self.counts[var] = self.counts.get(var, 0) * 0.99
 
 class PDR:
-    def __init__(self, primary_inputs, literals, primes, init, trans, post, pv2next, primes_inp, filename, debug=False, silent=True):
+    def __init__(self, primary_inputs, literals, primes, init, trans, post, pv2next, primes_inp, latch2innards, logic_internal_connections_implicant_table , filename, debug=False, silent=True):
         self.console = Console()
         self.enable_assert = True
         self.primary_inputs = primary_inputs
@@ -47,6 +47,7 @@ class PDR:
         self.inp_map = [(primary_inputs[i], primes_inp[i]) for i in range(len(primes_inp))]
         self.pv2next = pv2next
         self.initprime = substitute(self.init.cube(), self.primeMap)
+        self.internal_connections_implicant = logic_internal_connections_implicant_table
         self.ternary_simulator = ternary_sim.AIGBuffer()
         for _, updatefun in self.pv2next.items():
             self.ternary_simulator.register_expr(updatefun)
@@ -58,6 +59,7 @@ class PDR:
         self.micAttempts = float('inf')
         self.litOrderManager = HeuristicLitOrder()
         self.silent = silent # mode of monitor panel
+        self.latch2innards = latch2innards
         self.status = "Running..."
         
         # measurement variables
@@ -298,12 +300,29 @@ class PDR:
                 self.micAttempts -= 1
         else: # use down()
             q.cubeLiterals = self.frames[i].heuristic_lit_order(q.cubeLiterals, self.litOrderManager)
-            for i in range(len(q.cubeLiterals)):
-                if q.cubeLiterals[i] is True:
+            for idx in range(len(q.cubeLiterals)):
+                if q.cubeLiterals[idx] is True:
                     continue
-                q1 = q.delete(i)
+                q1 = q.delete(idx)
                 if self.down(q1):
                     q = q1
+                else:
+                    # Try replacing the literal with innards
+                    print("Trying to replace literal with innards...")
+                    # var, _ = _extract(q.cubeLiterals[idx])
+                    # if var in self.latch2innards:
+                    #     for innard in self.latch2innards[var]:
+                    q2 = q.clone()
+                    q2.remove_true()
+                    for lit in q2.cubeLiterals:
+                        if self.internal_connections_implicant.get(str(lit)) != None:
+                            print("Replacing internal signal...")
+                            self.extend_cube_with_internal_signals(q2, lit)
+                    # q2.cubeLiterals[idx] = innard
+                    # extend the CTIs with internal signals
+                    if self.down(q2):
+                        q = q2
+                        break
 
         q.remove_true()
         final_size = q.true_size()
@@ -314,6 +333,15 @@ class PDR:
         time_taken = end_time - start_time
         self.sum_of_mic_time += time_taken
         return q
+    
+    def extend_cube_with_internal_signals(self, q: tCube, lit):
+        # get value of self.internal_connections_implicant[str(lit)]
+        replacement_candidate = self.internal_connections_implicant[str(lit)]
+        # iterate through each tuple, select the one that is not in the cube
+        for replacement in replacement_candidate:
+            # TODO:randomly select replacement[0] or replacement[1]
+            (l_assignment_lhs, l_assignment_rhs) = (Bool(replacement[0]
+        pass
 
     def down(self, q: tCube):
 
