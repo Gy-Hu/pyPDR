@@ -308,17 +308,18 @@ class PDR:
                 if self.down(q1):
                     q = q1
                 # use internal signals to enhance inductive generalization (back one step and re-try)
-                elif random.choice([0, 1]) == 1:
-                #else:
-                    if self.internal_connections_implicant.get(q.cubeLiterals[idx]) != None:
-                        replacement_candidates = self.internal_connections_implicant[q.cubeLiterals[idx]]
-                        for replacement in replacement_candidates:
-                            choice_lit = random.choice(list(replacement))
-                            q2 = q.clone()
-                            q2.cubeLiterals[idx] = choice_lit
-                            if self.down(q2):
-                                q2.remove_true()
-                                self.frames[q2.t].block_cex(q2, pushed=False, litOrderManager=self.litOrderManager)
+                #elif random.choice([0, 1]) == 1:
+                else:
+                    for idx in range(len(q.cubeLiterals)):
+                        if self.internal_connections_implicant.get(q.cubeLiterals[idx]) != None:
+                            replacement_candidates = self.internal_connections_implicant[q.cubeLiterals[idx]]
+                            for replacement in replacement_candidates:
+                                choice_lit = random.choice(list(replacement))
+                                q2 = q.clone()
+                                q2.cubeLiterals[idx] = choice_lit
+                                if self.down(q2):
+                                    q2.remove_true()
+                                    self.frames[q2.t].block_cex(q2, pushed=False, litOrderManager=self.litOrderManager)
 
         q.remove_true()
         final_size = q.true_size()
