@@ -423,7 +423,7 @@ class PDR:
             self.sum_of_solve_relative_time += end_time - start_time
             return None
 
-    def generalize(self, prev_cube:tCube, next_cube_expr, prevF, use_ternary_sim=False):
+    def generalize(self, prev_cube:tCube, next_cube_expr, prevF, use_ternary_sim=True):
         self.status = "PREDECESSOR GENERALIZATION" 
         if not self.silent: self.live.update(self.monitor_panel.get_table())
         start_time = time.time()
@@ -474,6 +474,7 @@ class PDR:
                 out = simulator.get_val(nextcube)
                 if out == ternary_sim._X:
                     simulator.set_Li(v, ternary_sim.encode(val))
+                    #FIXME: Encounter bug in '/data/guangyuh/coding_env/pyPDR/dataset/hwmcc07_tip_aag/eijk.S953.S.aag']
                     assert simulator.get_val(nextcube) == ternary_sim._TRUE
                 else:
                     assert simulator.get_val(nextcube) == ternary_sim._TRUE
@@ -487,7 +488,19 @@ class PDR:
         return tcube_cp
 
     def get_variable_order(self, cubeLiterals):
-        return list(range(len(cubeLiterals)))
+        # update though litOrderManager
+        importance = self.litOrderManager.counts
+        # if {}, return the original order
+        if len(importance) == 0:
+            return list(range(len(cubeLiterals)))
+        # else, order the cubeLiterals by the importance (if not exist, set to original order)
+        else:
+            return sorted(
+                range(len(cubeLiterals)),
+                key=lambda idx: importance.get(str(cubeLiterals[idx].children()[0]), 0),
+                reverse=True,
+            )
+        #return list(range(len(cubeLiterals)))
 
     def strengthen(self):
         self.status = "OVER-APPROXIMATING" 

@@ -5,3 +5,8 @@ test.py
 pdr.log
 abc.history
 *.csv
+build/
+dist/
+run.spec
+run.c
+run
