@@ -30,7 +30,7 @@ class HeuristicLitOrder:
             self.counts[var] = self.counts.get(var, 0) * 0.99
 
 class PDR:
-    def __init__(self, primary_inputs, literals, primes, init, trans, post, pv2next, primes_inp, latch2innards, logic_internal_connections_implicant_table , filename, debug=False, silent=True):
+    def __init__(self, primary_inputs, literals, primes, init, trans, post, pv2next, primes_inp, latch2innards, logic_internal_connections_implicant_table , filename, debug=False, silent=False):
         self.console = Console()
         self.enable_assert = True
         self.primary_inputs = primary_inputs
@@ -80,6 +80,8 @@ class PDR:
         self.sum_of_unsatcore_reduce_time = 0
         self.cti_queue_sizes = []
         self.sum_of_sat_call = 0
+       #self.sum_of_all_clauses = sum([len(frame.Lemma) for frame in self.frames])
+        #self.sum_of_all_literals = sum([len(frame.cubeLiterals) for frame in self.frames])
         self.live = Live(self.monitor_panel.get_table(), console=self.console, screen=True, refresh_per_second=2)
         
     def check_sat(self, assumptions, return_model=False, return_res=False):
@@ -240,7 +242,7 @@ class PDR:
         self.status = "REFINING PROOF" 
         if not self.silent: self.live.update(self.monitor_panel.get_table())
         Q = PriorityQueue()
-        logging.info("recBlockCube now...")
+        #logging.info("recBlockCube now...")
         Q.put((s0.t, s0))
         prevFidx = None
         while not Q.empty():
@@ -545,7 +547,7 @@ class PDR:
         self.status = "OVER-APPROXIMATING" 
         if not self.silent: self.live.update(self.monitor_panel.get_table())
         start_time = time.time()
-        logging.info("seek for bad cube...")
+        #logging.info("seek for bad cube...")
         
         model = self.check_sat(And(substitute(substitute(Not(self.post.cube()), self.primeMap),self.inp_map), self.frames[-1].cube(), self.trans.cube()), return_model=True)
         end_time = time.time()

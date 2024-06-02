@@ -4,10 +4,33 @@ from rich.panel import Panel
 from rich.columns import Columns
 import asciichartpy as acp
 from rich.panel import Panel
+import os
+import csv
+from datetime import datetime
 
 class MonitorPannel:
     def __init__(self, pdr):
         self.pdr = pdr
+        self.time_stamp = datetime.now().strftime("%Y-%m-%d-%H:%M:%S")
+        self.csv_file_path = self.get_csv_file_path()
+        
+    def get_csv_file_path(self):
+        log_dir = "./logs/"
+        os.makedirs(log_dir, exist_ok=True)
+        #return os.path.join(log_dir, "pdr_log.csv")
+        # add timestamp to the csv file name
+        return os.path.join(log_dir, f"pdr_log_{self.time_stamp}.csv")
+    
+    def write_to_csv(self, data):
+        file_exists = os.path.isfile(self.csv_file_path)
+        with open(self.csv_file_path, "a", newline="") as csv_file:
+            writer = csv.writer(csv_file)
+            # if not file_exists:
+            #     writer.writerow(["Timestamp", "Variable", "Value", "Percentage (%)"])
+            timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            for variable, value, percentage in data:
+                writer.writerow([timestamp, variable, value, percentage])
+
     def get_table(self):
         table1 = Table(title="PDR Algorithm Status")
         table1.add_column("Variable", style="cyan")
@@ -93,6 +116,33 @@ class MonitorPannel:
         lemma_counts = [len(frame.Lemma) for frame in self.pdr.frames[1:]]
         frame_numbers = list(range(1, len(self.pdr.frames)))
         lemma_count_plot = acp.plot(lemma_counts[:], {'height': 5, 'X': len(self.pdr.frames)})
+        
+        if self.pdr.status not in ["FOUND TRACE", "FOUND INV"]:
+            # Collect the data
+            data = [
+                ["Engine Status", self.pdr.status, ""],
+                ["Average Propagation Time (s)", f"{avg_prop_time:.2f}", ""],
+                ["Average Predecessor Generalization Reduction (%)", f"{avg_gen_reduction:.2f}", ""],
+                ["Average MIC Reduction (%)", f"{avg_mic_reduction:.2f}", ""],
+                ["Sum of Propagation Time (s)", f"{self.pdr.sum_of_propagate_time:.2f}", percentage(self.pdr.sum_of_propagate_time)],
+                ["Sum of Predecessor Generalization Time (s)", f"{self.pdr.sum_of_predecessor_generalization_time:.2f}", percentage(self.pdr.sum_of_predecessor_generalization_time)],
+                ["Sum of MIC Time (s)", f"{self.pdr.sum_of_mic_time:.2f}", percentage(self.pdr.sum_of_mic_time)],
+                ["Sum of CTI Producing Time (s)", f"{self.pdr.sum_of_cti_producing_time:.2f}", percentage(self.pdr.sum_of_cti_producing_time)],
+                ["Sum of solve relative Time (s)", f"{self.pdr.sum_of_solve_relative_time:.2f}", percentage(self.pdr.sum_of_solve_relative_time)],
+                ["Sum of check induction Time (s)", f"{self.pdr.sum_of_check_induction_time:.2f}", percentage(self.pdr.sum_of_check_induction_time)],
+                ["Sum of frame trivially block Time (s)", f"{self.pdr.sum_of_frame_trivially_block_time:.2f}", percentage(self.pdr.sum_of_frame_trivially_block_time)],
+                ["Sum of unsatcore reduce Time (s)", f"{self.pdr.sum_of_unsatcore_reduce_time:.2f}", percentage(self.pdr.sum_of_unsatcore_reduce_time)],
+                ["Overall Runtime (s)", f"{self.pdr.overall_runtime:.2f}", ""],
+                ["Total Push Attempts", str(self.pdr.total_push_attempts), ""],
+                ["Overall Push Success Rate (%)", f"{overall_push_success_rate:.2f}", ""],
+                ["Current Frame", str(len(self.pdr.frames) - 1), ""],
+                ["Total Frames", str(len(self.pdr.frames)), ""],
+                ["Total SAT Calls", str(self.pdr.sum_of_sat_call), ""],
+                ["Average CTI−induced clause size", str(sum(sum(frame.Lemma_size) for frame in self.pdr.frames) / sum(len(frame.Lemma)-1 for frame in self.pdr.frames) if sum(len(frame.Lemma)-1 for frame in self.pdr.frames) > 0 else "0"), ""],
+                ["Average clauses per level", str(sum(len(frame.Lemma)-1 for frame in self.pdr.frames) / len(self.pdr.frames) if len(self.pdr.frames) > 0 else "0"), ""]
+            ]
+            # Write the data to the csv file
+            self.write_to_csv(data)
 
         return Columns([Panel(table1), 
                 Panel(cti_plot, expand=False, title="~~ [bold][yellow]CTI Changes Vary to Time[/bold][/yellow] ~~"), 
