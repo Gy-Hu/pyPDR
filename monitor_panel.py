@@ -27,7 +27,9 @@ class MonitorPannel:
             writer = csv.writer(csv_file)
             # if not file_exists:
             #     writer.writerow(["Timestamp", "Variable", "Value", "Percentage (%)"])
-            timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            #timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            # accurate timestamp
+            timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")
             for variable, value, percentage in data:
                 writer.writerow([timestamp, variable, value, percentage])
 

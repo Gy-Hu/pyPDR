@@ -11,7 +11,7 @@
 - ternary simulation - for predecessor aggresive generalization (not suitable for python implementation) [[N Een 11]](http://een.se/niklas/eff_impl_pdr.pdf)
 - infinite mic attempt (suggestion from arbrad) [[arbrad 15]](https://github.com/arbrad/IC3ref/pull/6)
 - literals ordering according to their appearance in the trace (frequency), both in predecessor generalization (ternary sim) and inductive generalization (mic) [[arbrad 15]](https://github.com/arbrad/IC3ref/blob/master/IC3.cpp)
-- IC3 with innards for better generalization [[Rohit Dureja 21]](https://ieeexplore.ieee.org/document/9617709)
+- IC3 with innards for better generalization [**WIP**] [[Rohit Dureja 21]](https://ieeexplore.ieee.org/document/9617709)
 
 ### Others
 - robust sanity checker
