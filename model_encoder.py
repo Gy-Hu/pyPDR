@@ -188,23 +188,23 @@ class Model:
                     if len(left_child.children()) == 1 and len(right_child.children()) == 1:
                         # situation 1: !v1 && !v2
                         v1, v2 = left_child.children()[0], right_child.children()[0]
-                        self.add_implicant_relation(implicant_table, f"{v1} == True", [(f"{v2} == True", f"{v2} == False")])
-                        self.add_implicant_relation(implicant_table, f"{v2} == True", [(f"{v1} == True", f"{v1} == False")])
+                        self.add_implicant_relation(implicant_table, Bool(str(v1)) == True, [(Bool(str(v2)) == True, Bool(str(v2)) == False)])
+                        self.add_implicant_relation(implicant_table, Bool(str(v2)) == True, [(Bool(str(v1)) == True, Bool(str(v1)) == False)])
                     elif left_child in self.vars and right_child in self.vars:
                         # situation 2: v1 && v2
                         v1, v2 = left_child, right_child
-                        self.add_implicant_relation(implicant_table, f"{v1} == False", [(f"{v2} == False", f"{v2} == True")])
-                        self.add_implicant_relation(implicant_table, f"{v2} == False", [(f"{v1} == False", f"{v1} == True")])
+                        self.add_implicant_relation(implicant_table, Bool(str(v1)) == False, [(Bool(str(v2)) == False, Bool(str(v2)) == True)])
+                        self.add_implicant_relation(implicant_table, Bool(str(v2)) == False, [(Bool(str(v1)) == False, Bool(str(v1)) == True)])
                     elif len(left_child.children()) == 1:
                         # situation 3: !v1 && v2
                         v1, v2 = left_child.children()[0], right_child
-                        self.add_implicant_relation(implicant_table, f"{v1} == True", [(f"{v2} == False", f"{v2} == True")])
-                        self.add_implicant_relation(implicant_table, f"{v2} == False", [(f"{v1} == True", f"{v1} == False")])
+                        self.add_implicant_relation(implicant_table, Bool(str(v1)) == True, [(Bool(str(v2)) == False, Bool(str(v2)) == True)])
+                        self.add_implicant_relation(implicant_table, Bool(str(v2)) == False, [(Bool(str(v1)) == True, Bool(str(v1)) == False)])
                     elif len(right_child.children()) == 1:
                         # situation 4: v1 && !v2
                         v1, v2 = left_child, right_child.children()[0]
-                        self.add_implicant_relation(implicant_table, f"{v1} == False", [(f"{v2} == True", f"{v2} == False")])
-                        self.add_implicant_relation(implicant_table, f"{v2} == True", [(f"{v1} == False", f"{v1} == True")])
+                        self.add_implicant_relation(implicant_table, Bool(str(v1)) == False, [(Bool(str(v2)) == True, Bool(str(v2)) == False)])
+                        self.add_implicant_relation(implicant_table, Bool(str(v2)) == True, [(Bool(str(v1)) == False, Bool(str(v1)) == True)])
 
         return implicant_table
 

@@ -11,6 +11,7 @@ from rich.live import Live
 import logging
 import time
 from rich.panel import Panel
+import random
 
 logging.basicConfig(filename='pdr.log', level=logging.INFO, format='%(message)s')
 
@@ -306,18 +307,27 @@ class PDR:
                 q1 = q.delete(idx)
                 if self.down(q1):
                     q = q1
-                else:
+                elif random.choice([0, 1]) == 1:
                     # Try replacing the literal with innards
-                    print("Trying to replace literal with innards...")
+                    #print("Trying to replace literal with innards...")
                     # var, _ = _extract(q.cubeLiterals[idx])
                     # if var in self.latch2innards:
                     #     for innard in self.latch2innards[var]:
                     q2 = q.clone()
                     q2.remove_true()
+                    
+                    q_extra_literal = []
+                    
                     for lit in q2.cubeLiterals:
-                        if self.internal_connections_implicant.get(str(lit)) != None:
-                            print("Replacing internal signal...")
-                            self.extend_cube_with_internal_signals(q2, lit)
+                        length_before_extend_by_innards = len(q_extra_literal)
+                        if self.internal_connections_implicant.get(lit) != None:
+                            #print("Replacing internal signal...")
+                            self.extend_cube_with_internal_signals(q_extra_literal, lit)
+                            length_after_extend_by_innards = len(q_extra_literal)
+                            if length_after_extend_by_innards == length_before_extend_by_innards:
+                                #print("No internal signal to replace")
+                                continue
+                    q2.cubeLiterals.extend(q_extra_literal)
                     # q2.cubeLiterals[idx] = innard
                     # extend the CTIs with internal signals
                     if self.down(q2):
@@ -334,14 +344,15 @@ class PDR:
         self.sum_of_mic_time += time_taken
         return q
     
-    def extend_cube_with_internal_signals(self, q: tCube, lit):
+    def extend_cube_with_internal_signals(self, q_extra_lit: tCube, lit):
         # get value of self.internal_connections_implicant[str(lit)]
-        replacement_candidate = self.internal_connections_implicant[str(lit)]
+        replacement_candidate = self.internal_connections_implicant[lit]
         # iterate through each tuple, select the one that is not in the cube
         for replacement in replacement_candidate:
-            # TODO:randomly select replacement[0] or replacement[1]
-            (l_assignment_lhs, l_assignment_rhs) = (Bool(replacement[0]
-        pass
+            extend_lit = random.choice(list(replacement))
+            if extend_lit not in q_extra_lit:
+                q_extra_lit.append(extend_lit)
+        return
 
     def down(self, q: tCube):
 
@@ -451,7 +462,7 @@ class PDR:
             self.sum_of_solve_relative_time += end_time - start_time
             return None
 
-    def generalize(self, prev_cube:tCube, next_cube_expr, prevF, use_ternary_sim=True):
+    def generalize(self, prev_cube:tCube, next_cube_expr, prevF, use_ternary_sim=False):
         self.status = "PREDECESSOR GENERALIZATION" 
         if not self.silent: self.live.update(self.monitor_panel.get_table())
         start_time = time.time()
