@@ -280,7 +280,7 @@ class PDR:
             self.cti_queue_sizes.append(Q.qsize()) 
         return None
     
-    def mic(self, q: tCube, i: int, d: int = 1, use_ctg_down=False):
+    def mic(self, q: tCube, i: int, d: int = 1, use_ctg_down=False, use_innards_for_generalization=False):
         self.status = "INDUCTIVE GENERALIZATION" 
         if not self.silent: self.live.update(self.monitor_panel.get_table())
         start_time = time.time()
@@ -309,7 +309,7 @@ class PDR:
                     q = q1
                 # use internal signals to enhance inductive generalization (back one step and re-try)
                 #elif random.choice([0, 1]) == 1:
-                else:
+                elif use_innards_for_generalization:
                     for idx in range(len(q.cubeLiterals)):
                         if self.internal_connections_implicant.get(q.cubeLiterals[idx]) != None:
                             replacement_candidates = self.internal_connections_implicant[q.cubeLiterals[idx]]
