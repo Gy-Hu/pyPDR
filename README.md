@@ -1,5 +1,7 @@
 # pyPDR
 
+![screenshots](figs/iShot_2024-06-02_19.31.52.png)
+
 ## Techniques I used
 
 ### Algorithmic
