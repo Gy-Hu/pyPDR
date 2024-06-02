@@ -42,9 +42,38 @@ class MonitorPannel:
         table1.add_row("Current Frame", str(len(self.pdr.frames) - 1), "")
         table1.add_row("Total Frames", str(len(self.pdr.frames)), "")
         table1.add_row("Total SAT Calls", str(self.pdr.sum_of_sat_call), "")
+        table1.add_row(
+            "Average CTI−induced clause size",
+            (
+                str(
+                    # sum of all literals in all frames / number of clauses in all frames
+                    sum(sum(frame.Lemma_size) for frame in self.pdr.frames)
+                    /
+                    # sum of all clauses in all frames
+                    sum(len(frame.Lemma)-1 for frame in self.pdr.frames)
+                )
+                if sum(len(frame.Lemma)-1 for frame in self.pdr.frames) > 0
+                else "0"
+            ),
+            "",
+        )
+        table1.add_row(
+            "Average clauses per level",
+            (
+                str(
+                    # sum of all clauses in all frames / number of frames
+                    sum(len(frame.Lemma)-1 for frame in self.pdr.frames)
+                    /
+                    # number of frames
+                    len(self.pdr.frames)
+                )
+                if len(self.pdr.frames) > 0
+                else "0"
+            ),
+            "",
+        )
+            
 
-        
-        
         table2 = Table(title="Frame Information")
         table2.add_column("Frame", style="cyan")
         table2.add_column("Size", style="magenta")
@@ -56,10 +85,10 @@ class MonitorPannel:
         for index in range(start_frame, len(self.pdr.frames)):
             push_cnt = self.pdr.frames[index].pushed.count(True)
             table2.add_row(f"{index}", str(len(self.pdr.frames[index].Lemma)), str(push_cnt), f"{push_cnt / len(self.pdr.frames[index].Lemma) * 100:.2f}") if len(self.pdr.frames[index].Lemma) > 0 else table2.add_row(f"{index}", "0", "0", "0")
-            
+
         # Create a line plot for CTI queue size changes
         cti_plot = acp.plot(self.pdr.cti_queue_sizes[-20:])
-        
+
         # Create a line plot for lemma count changes
         lemma_counts = [len(frame.Lemma) for frame in self.pdr.frames[1:]]
         frame_numbers = list(range(1, len(self.pdr.frames)))

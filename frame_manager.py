@@ -6,6 +6,7 @@ class Frame:
     def __init__(self, lemmas):
         self.Lemma = lemmas
         self.pushed = [False] * len(lemmas)
+        self.Lemma_size = [0 * len(lemmas)]
         #self.litOrder = HeuristicLitOrder()
 
     def cube(self):
@@ -25,10 +26,15 @@ class Frame:
             return
         self.Lemma.append(blocked_cube)
         self.pushed.append(pushed)
+        self.Lemma_size.append(len(cube.cubeLiterals))
         self.updateLitOrder(cube, litOrderManager)
     
     def addLemma(self, lemma, pushed=False):
+        # block_cube = Not(simplify(And(lemma.cubeLiterals)))
+        # if is_true(block_cube) == True:
+        #     return
         self.Lemma.append(lemma)
+        #self.Lemma_size.append(len(lemma.cubeLiterals))
         self.pushed.append(pushed)
 
     def updateLitOrder(self, cube, litOrderManager):

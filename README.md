@@ -13,7 +13,7 @@
 - literals ordering according to their appearance in the trace (frequency), both in predecessor generalization (ternary sim) and inductive generalization (mic) [[arbrad 15]](https://github.com/arbrad/IC3ref/blob/master/IC3.cpp)
 - IC3 with innards for better generalization [[Rohit Dureja 21]](https://ieeexplore.ieee.org/document/9617709)
 
-### Others (engineering)
+### Others
 - robust sanity checker
 - rich console output for logging and monitoring
 - cube and frame management system (add, join, push, etc.)
@@ -26,7 +26,7 @@
 - reset solver with some frequency (keep the loaded logic relatively small)
 - every time check assumption, some part (such as tr, should not be loaded every time, rather than push it to the solver at the beginning)
 - use kissat or some SOTA SAT solver rather than z3
-- use graceful strategy for propagating phase when solving the SAT problem
+- use graceful strategy for propagating phase when solving the SAT problem (adjust the solving tactic in sovlver)
 - backward ic3
 - frame extending for solving SAT problem faster (mentioned in IC3, PDR and friends)
 - bring in the literal add/drop info (times, etc.) to the sat solver to facilitate the solving process (CDCL, etc.)
