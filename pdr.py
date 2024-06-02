@@ -307,38 +307,23 @@ class PDR:
                 q1 = q.delete(idx)
                 if self.down(q1):
                     q = q1
+                # use internal signals to enhance inductive generalization (back one step and re-try)
                 elif random.choice([0, 1]) == 1:
-                    # Try replacing the literal with innards
-                    #print("Trying to replace literal with innards...")
-                    # var, _ = _extract(q.cubeLiterals[idx])
-                    # if var in self.latch2innards:
-                    #     for innard in self.latch2innards[var]:
-                    q2 = q.clone()
-                    q2.remove_true()
-                    
-                    q_extra_literal = []
-                    
-                    for lit in q2.cubeLiterals:
-                        length_before_extend_by_innards = len(q_extra_literal)
-                        if self.internal_connections_implicant.get(lit) != None:
-                            #print("Replacing internal signal...")
-                            self.extend_cube_with_internal_signals(q_extra_literal, lit)
-                            length_after_extend_by_innards = len(q_extra_literal)
-                            if length_after_extend_by_innards == length_before_extend_by_innards:
-                                #print("No internal signal to replace")
-                                continue
-                    q2.cubeLiterals.extend(q_extra_literal)
-                    # q2.cubeLiterals[idx] = innard
-                    # extend the CTIs with internal signals
-                    if self.down(q2):
-                        q = q2
-                        break
+                #else:
+                    if self.internal_connections_implicant.get(q.cubeLiterals[idx]) != None:
+                        replacement_candidates = self.internal_connections_implicant[q.cubeLiterals[idx]]
+                        for replacement in replacement_candidates:
+                            choice_lit = random.choice(list(replacement))
+                            q2 = q.clone()
+                            q2.cubeLiterals[idx] = choice_lit
+                            if self.down(q2):
+                                q2.remove_true()
+                                self.frames[q2.t].block_cex(q2, pushed=False, litOrderManager=self.litOrderManager)
 
         q.remove_true()
         final_size = q.true_size()
         reduction_percentage = ((initial_size - final_size) / initial_size) * 100 if initial_size > 0 else 0
         self.mic_reduction_percentages.append(reduction_percentage)
-        
         end_time = time.time()
         time_taken = end_time - start_time
         self.sum_of_mic_time += time_taken
@@ -396,7 +381,8 @@ class PDR:
                         break
                 s = self.mic(s, j-1, d+1)
                 self.sanity_checker._debug_cex_is_not_none(s)
-                self.frames[j].block_cex(s, pushed=False)
+                #self.frames[j].block_cex(s, pushed=False)
+                self.frames[j].block_cex(s, pushed=False, litOrderManager=self.litOrderManager)
             else:
                 ctgs = 0
                 #q.remove_true()
