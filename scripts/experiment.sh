@@ -4,7 +4,7 @@
 CASE_DIR="/data/guangyuh/coding_env/pyPDR/dataset/hwmcc07_tip_aag"
 
 # Output report file
-REPORT_FILE="../logs/report_down_innards.csv"
+REPORT_FILE="../logs/report_down_without_inc_sat.csv"
 
 # Initialize the report file
 echo "Case,Runtime,Result" > $REPORT_FILE

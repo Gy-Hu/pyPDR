@@ -48,8 +48,8 @@ class Frame:
         return sorted(
             cube_literals,
             key=lambda l: litOrderManager.counts.get(str(l.children()[0]), 0),
-            reverse=False,
-        )
+            reverse=False, # larger counts (higher frequency) put in the back
+        ) 
 
     def __repr__(self):
         return str(sorted(self.Lemma, key=str))

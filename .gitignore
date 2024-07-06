@@ -10,3 +10,4 @@ dist/
 run.spec
 run.c
 run
+ask_LLM.sh

@@ -145,68 +145,72 @@ class Model:
         self.vars = []
         self.primed_vars = []
         self.inp_prime = []
+        self.innards = []
         self.trans = tCube()
         self.init = tCube()
         self.post = tCube()
+        #internal_signals_mapping = tCube()
         self.pv2next = dict()
         self.inp_prime = []
         self.filename = ''
-        self.latch_to_innards = {}
-        self.logic_internal_connections = {}
+        #self.latch_to_innards = {}
+        #self.implicant_table = {}
+        #self.logic_internal_connections = {}
+        internal_signals_mapping = {}
         
-    def is_valid_expression(self, expr):
-        """
-        Check if the expression is of the form And(Not(v1), Not(v2)) or And(v1, v2).
-        """
-        if expr.decl().kind() == And().decl().kind():
-            children = expr.children()
-            if len(children) == 2:
-                left_child, right_child = children
-                # situation 1: !v1 && !v2 -> left_child = Not(v1), right_child = Not(v2), -> v1, v2 in self.vars
-                if len(left_child.children()) == 1 and len(right_child.children()) == 1: # fulfill the Not conditions
-                    return left_child.children()[0] in self.vars and right_child.children()[0] in self.vars
-                # situation 2: v1 && v2 -> left_child = v1, right_child = v2, -> v1, v2 in self.vars
-                elif left_child in self.vars and right_child in self.vars:
-                    return True
-                # situation 3: !v1 && v2 -> left_child = Not(v1), right_child = v2, -> v1, v2 in self.vars
-                elif len(left_child.children()) == 1 and len(right_child.children()) == 1: # fulfill the Not conditions
-                    return left_child.children()[0] in self.vars
-                # situation 4: v1 && !v2 -> left_child = v1, right_child = Not(v2), -> v1, v2 in self.vars
-                elif left_child in self.vars and len(right_child.children()) == 1:
-                    return right_child.children()[0] in self.vars
-        return False
+    # def is_valid_expression(self, expr):
+    #     """
+    #     Check if the expression is of the form And(Not(v1), Not(v2)) or And(v1, v2).
+    #     """
+    #     if expr.decl().kind() == And().decl().kind():
+    #         children = expr.children()
+    #         if len(children) == 2:
+    #             left_child, right_child = children
+    #             # situation 1: !v1 && !v2 -> left_child = Not(v1), right_child = Not(v2), -> v1, v2 in self.vars
+    #             if len(left_child.children()) == 1 and len(right_child.children()) == 1: # fulfill the Not conditions
+    #                 return left_child.children()[0] in self.vars and right_child.children()[0] in self.vars
+    #             # situation 2: v1 && v2 -> left_child = v1, right_child = v2, -> v1, v2 in self.vars
+    #             elif left_child in self.vars and right_child in self.vars:
+    #                 return True
+    #             # situation 3: !v1 && v2 -> left_child = Not(v1), right_child = v2, -> v1, v2 in self.vars
+    #             elif len(left_child.children()) == 1 and len(right_child.children()) == 1: # fulfill the Not conditions
+    #                 return left_child.children()[0] in self.vars
+    #             # situation 4: v1 && !v2 -> left_child = v1, right_child = Not(v2), -> v1, v2 in self.vars
+    #             elif left_child in self.vars and len(right_child.children()) == 1:
+    #                 return right_child.children()[0] in self.vars
+    #     return False
         
-    def generate_implicant_propagation_table(self):
-        implicant_table = {}
+    # def generate_implicant_propagation_table(self):
+    #     implicant_table = {}
 
-        for key, value in self.logic_internal_connections.items():
-            if value.decl().kind() == And().decl().kind():
-                children = value.children()
-                if len(children) == 2:
-                    left_child, right_child = children
+    #     for key, value in self.logic_internal_connections.items():
+    #         if value.decl().kind() == And().decl().kind():
+    #             children = value.children()
+    #             if len(children) == 2:
+    #                 left_child, right_child = children
 
-                    if len(left_child.children()) == 1 and len(right_child.children()) == 1:
-                        # situation 1: !v1 && !v2
-                        v1, v2 = left_child.children()[0], right_child.children()[0]
-                        self.add_implicant_relation(implicant_table, Bool(str(v1)) == True, [(Bool(str(v2)) == True, Bool(str(v2)) == False)])
-                        self.add_implicant_relation(implicant_table, Bool(str(v2)) == True, [(Bool(str(v1)) == True, Bool(str(v1)) == False)])
-                    elif left_child in self.vars and right_child in self.vars:
-                        # situation 2: v1 && v2
-                        v1, v2 = left_child, right_child
-                        self.add_implicant_relation(implicant_table, Bool(str(v1)) == False, [(Bool(str(v2)) == False, Bool(str(v2)) == True)])
-                        self.add_implicant_relation(implicant_table, Bool(str(v2)) == False, [(Bool(str(v1)) == False, Bool(str(v1)) == True)])
-                    elif len(left_child.children()) == 1:
-                        # situation 3: !v1 && v2
-                        v1, v2 = left_child.children()[0], right_child
-                        self.add_implicant_relation(implicant_table, Bool(str(v1)) == True, [(Bool(str(v2)) == False, Bool(str(v2)) == True)])
-                        self.add_implicant_relation(implicant_table, Bool(str(v2)) == False, [(Bool(str(v1)) == True, Bool(str(v1)) == False)])
-                    elif len(right_child.children()) == 1:
-                        # situation 4: v1 && !v2
-                        v1, v2 = left_child, right_child.children()[0]
-                        self.add_implicant_relation(implicant_table, Bool(str(v1)) == False, [(Bool(str(v2)) == True, Bool(str(v2)) == False)])
-                        self.add_implicant_relation(implicant_table, Bool(str(v2)) == True, [(Bool(str(v1)) == False, Bool(str(v1)) == True)])
+    #                 if len(left_child.children()) == 1 and len(right_child.children()) == 1:
+    #                     # situation 1: !v1 && !v2
+    #                     v1, v2 = left_child.children()[0], right_child.children()[0]
+    #                     self.add_implicant_relation(implicant_table, Bool(str(v1)) == True, [(Bool(str(v2)) == True, Bool(str(v2)) == False)])
+    #                     self.add_implicant_relation(implicant_table, Bool(str(v2)) == True, [(Bool(str(v1)) == True, Bool(str(v1)) == False)])
+    #                 elif left_child in self.vars and right_child in self.vars:
+    #                     # situation 2: v1 && v2
+    #                     v1, v2 = left_child, right_child
+    #                     self.add_implicant_relation(implicant_table, Bool(str(v1)) == False, [(Bool(str(v2)) == False, Bool(str(v2)) == True)])
+    #                     self.add_implicant_relation(implicant_table, Bool(str(v2)) == False, [(Bool(str(v1)) == False, Bool(str(v1)) == True)])
+    #                 elif len(left_child.children()) == 1:
+    #                     # situation 3: !v1 && v2
+    #                     v1, v2 = left_child.children()[0], right_child
+    #                     self.add_implicant_relation(implicant_table, Bool(str(v1)) == True, [(Bool(str(v2)) == False, Bool(str(v2)) == True)])
+    #                     self.add_implicant_relation(implicant_table, Bool(str(v2)) == False, [(Bool(str(v1)) == True, Bool(str(v1)) == False)])
+    #                 elif len(right_child.children()) == 1:
+    #                     # situation 4: v1 && !v2
+    #                     v1, v2 = left_child, right_child.children()[0]
+    #                     self.add_implicant_relation(implicant_table, Bool(str(v1)) == False, [(Bool(str(v2)) == True, Bool(str(v2)) == False)])
+    #                     self.add_implicant_relation(implicant_table, Bool(str(v2)) == True, [(Bool(str(v1)) == False, Bool(str(v1)) == True)])
 
-        return implicant_table
+    #     return implicant_table
 
     def add_implicant_relation(self, table, key, implications):
         if key not in table:
@@ -215,7 +219,7 @@ class Model:
             if implication not in table[key]:
                 table[key].append(implication)
 
-    def parse(self, fileName):
+    def parse(self, fileName, calc_latch_to_innards=True, calc_implicant_table=True):
         '''
         :param fileName:
         :return:
@@ -329,16 +333,28 @@ class Model:
                     exit(1)
 
             ands[it.lhs] = And(rs0, rs1)
+        
+        
             
-        # latch_to_innards    
-        for it in l:
-            # Create the latch_to_innards mapping
-            latch = vs[it.var]
-            self.latch_to_innards[latch] = []
-            if it.next != "0" and it.next != "1":
-                v = it.next if int(it.next) & 1 == 0 else str(int(it.next) - 1)
-                if v in ands.keys():
-                    self.latch_to_innards[latch].append(ands[v])
+        # Create the internal_signals dictionary
+        internal_signals_mapping = {f"innards_{i}": expr for i, (lhs, expr) in enumerate(ands.items())}
+        
+        # add the innards into list, just like self.init
+        for k, v in internal_signals_mapping.items():
+            self.innards.append(Bool(k))
+        # make internal signal to tCube
+        #internal_signals_mapping.addAnds([v for v in ands.values()])
+            
+        # if calc_latch_to_innards:
+        #     # latch_to_innards    
+        #     for it in l:
+        #         # Create the latch_to_innards mapping
+        #         latch = vs[it.var]
+        #         self.latch_to_innards[latch] = []
+        #         if it.next != "0" and it.next != "1":
+        #             v = it.next if int(it.next) & 1 == 0 else str(int(it.next) - 1)
+        #             if v in ands.keys():
+        #                 self.latch_to_innards[latch].append(ands[v])
 
         # initial condition, init = And(inits{Bool(latch_node)})
         inits_var = list()
@@ -450,31 +466,28 @@ class Model:
         # print("postAdded")
         #print("self.inputs: ",self.inputs)
         #print("self.vars: ",self.vars)
-        
-        # clone the ands into logic_internal_connections
-        self.logic_internal_connections = ands.copy()
-        
-        
+        # if calc_implicant_table:
+        #     # clone the ands into logic_internal_connections
+        #     self.logic_internal_connections = ands.copy()
+        #     # filtered_connections = {
+        #     #     key: [connections if is_valid_expression(conn)]
+        #     #     for key, connections in self.logic_internal_connections.items()
+        #     # }
 
-        # filtered_connections = {
-        #     key: [connections if is_valid_expression(conn)]
-        #     for key, connections in self.logic_internal_connections.items()
-        # }
-
-        for key, connections in self.logic_internal_connections.items():
-            # Filter out the connections that get false in the is_valid_expression(connections)
-            if not self.is_valid_expression(connections): # return False
-                self.logic_internal_connections[key] = None
-        
-        self.logic_internal_connections = {k: v for k, v in self.logic_internal_connections.items() if v is not None}
-        
-        
-        self.implicant_table = self.generate_implicant_propagation_table()
+        #     for key, connections in self.logic_internal_connections.items():
+        #         # Filter out the connections that get false in the is_valid_expression(connections)
+        #         if not self.is_valid_expression(connections): # return False
+        #             self.logic_internal_connections[key] = None
+            
+        #     self.logic_internal_connections = {k: v for k, v in self.logic_internal_connections.items() if v is not None}
+            
+            
+        #     self.implicant_table = self.generate_implicant_propagation_table()
         
         # Update self.internal_connections with filtered connections
         #self.logic_internal_connections = filtered_connections       
         
-        return self.inputs, self.vars, self.primed_vars, self.init, self.trans, self.post, self.pv2next, self.inp_prime, self.latch_to_innards, self.implicant_table, self.filename
+        return self.inputs, self.vars, self.primed_vars, self.init, self.trans, self.post, self.pv2next, self.inp_prime, self.innards, internal_signals_mapping, self.filename
 
 
 if __name__ == '__main__':

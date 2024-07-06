@@ -9,7 +9,7 @@ import csv
 from datetime import datetime
 
 class MonitorPannel:
-    def __init__(self, pdr, enable_logging=True):
+    def __init__(self, pdr, enable_logging=False):
         self.pdr = pdr
         self.enable_logging = enable_logging
         self.time_stamp = datetime.now().strftime("%Y-%m-%d-%H:%M:%S")

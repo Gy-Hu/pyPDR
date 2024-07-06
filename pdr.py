@@ -8,36 +8,45 @@ from monitor_panel import MonitorPannel
 from rich.console import Console
 from rich.panel import Panel
 from rich.live import Live
-import logging
+from innards_based_generalization import InnardsGeneralizer
+#import logging
 import time
 from rich.panel import Panel
 import random
+from pprint import pprint
+import math
 
-logging.basicConfig(filename='pdr.log', level=logging.INFO, format='%(message)s')
+#logging.basicConfig(filename='pdr.log', level=logging.INFO, format='%(message)s')
 
 class HeuristicLitOrder:
-    def __init__(self):
+    def __init__(self, innards_mapping):
         self.counts = {}
         self._mini = float('inf')
+        self.innards_mapping = innards_mapping
 
     def count(self, cube):
         assert len(cube) > 0
         for literal in cube:
             self.counts[str(literal.children()[0])] = self.counts.get(str(literal.children()[0]), 0) + 1
+            # if literals start with `innards`, add more
+            if str(literal.children()[0]).startswith('innards'):
+                # if str(self.innards_mapping[str(literal.children()[0])]) is longer, more value should be added
+                length = len(str(self.innards_mapping[str(literal.children()[0])]))
+                self.counts[str(literal.children()[0])] += math.log(length + 1)
 
     def decay(self):
         for var in self.counts.keys():
             self.counts[var] = self.counts.get(var, 0) * 0.99
 
 class PDR:
-    def __init__(self, primary_inputs, literals, primes, init, trans, post, pv2next, primes_inp, latch2innards, logic_internal_connections_implicant_table , filename, debug=False, silent=False):
+    def __init__(self, primary_inputs, literals, primes, init, trans, post, pv2next, primes_inp, innards, internal_signals_mapping , filename, debug=False, silent=False):
         self.console = Console()
         self.enable_assert = True
         self.primary_inputs = primary_inputs
         self.init = init
         self.trans = trans
         self.literals = literals
-        self.items = self.primary_inputs + self.literals + primes_inp + primes
+        self.items = self.primary_inputs + self.literals + primes_inp + primes + innards
         self.lMap = {str(l): l for l in self.items}
         self.post = post
         self.frames = list()
@@ -48,7 +57,7 @@ class PDR:
         self.inp_map = [(primary_inputs[i], primes_inp[i]) for i in range(len(primes_inp))]
         self.pv2next = pv2next
         self.initprime = substitute(self.init.cube(), self.primeMap)
-        self.internal_connections_implicant = logic_internal_connections_implicant_table
+        #self.internal_connections_implicant = logic_internal_connections_implicant_table
         self.ternary_simulator = ternary_sim.AIGBuffer()
         for _, updatefun in self.pv2next.items():
             self.ternary_simulator.register_expr(updatefun)
@@ -58,9 +67,11 @@ class PDR:
         self.maxDepth = 1
         self.maxCTGs = 3
         self.micAttempts = float('inf')
-        self.litOrderManager = HeuristicLitOrder()
         self.silent = silent # mode of monitor panel
-        self.latch2innards = latch2innards
+        #self.latch2innards = latch2innards
+        self.internal_signals_mapping = internal_signals_mapping
+        self.litOrderManager = HeuristicLitOrder(internal_signals_mapping)
+        self.innards_generalizer = InnardsGeneralizer(internal_signals_mapping)
         self.status = "Running..."
         
         # measurement variables
@@ -82,13 +93,18 @@ class PDR:
         self.sum_of_sat_call = 0
        #self.sum_of_all_clauses = sum([len(frame.Lemma) for frame in self.frames])
         #self.sum_of_all_literals = sum([len(frame.cubeLiterals) for frame in self.frames])
+        # make internal signal to tCube
+        self.innards_constraints = tCube()
+        self.innards_constraints.addAnds([Bool(var) == val for var, val in self.internal_signals_mapping.items()])
         self.live = Live(self.monitor_panel.get_table(), console=self.console, screen=True, refresh_per_second=2)
         
     def check_sat(self, assumptions, return_model=False, return_res=False):
         self.status = "CHECKING SAT"
         self.live.update(self.monitor_panel.get_table())
+        #self.solver = Solver() # test inc-sat effect (how much impact on the performance?)
         self.solver.push()
         self.solver.add(assumptions)
+        #self.solver.add(self.innards_constraints.cube())
         res = self.solver.check()
         self.sum_of_sat_call += 1
 
@@ -282,14 +298,15 @@ class PDR:
             self.cti_queue_sizes.append(Q.qsize()) 
         return None
     
-    def mic(self, q: tCube, i: int, d: int = 1, use_ctg_down=False, use_innard=False):
+    def mic(self, q: tCube, i: int, d: int = 1, down=True, use_ctg_down=False, use_innard=False):
         self.status = "INDUCTIVE GENERALIZATION" 
         if not self.silent: self.live.update(self.monitor_panel.get_table())
         start_time = time.time()
         initial_size = q.true_size()
         self.unsatcore_reduce(q, trans=self.trans.cube(), frame=self.frames[q.t - 1].cube())
         q.remove_true()
-
+        q4innards = q.clone()
+        
         if use_ctg_down:
             q.cubeLiterals = self.frames[i].heuristic_lit_order(q.cubeLiterals, self.litOrderManager)
             for idx in range(len(q.cubeLiterals)):
@@ -301,7 +318,7 @@ class PDR:
                 if self.ctgDown(q_copy, i, d):
                     q = q_copy
                 self.micAttempts -= 1
-        else: # use down()
+        elif down: # use down()
             q.cubeLiterals = self.frames[i].heuristic_lit_order(q.cubeLiterals, self.litOrderManager)
             for idx in range(len(q.cubeLiterals)):
                 if q.cubeLiterals[idx] is True:
@@ -309,32 +326,15 @@ class PDR:
                 q1 = q.delete(idx)
                 if self.down(q1):
                     q = q1
-                elif use_innard: # use innards for enhance generalization
-                    # Try replacing the literal with innards
-                    #print("Trying to replace literal with innards...")
-                    # var, _ = _extract(q.cubeLiterals[idx])
-                    # if var in self.latch2innards:
-                    #     for innard in self.latch2innards[var]:
-                    q2 = q.clone()
-                    q2.remove_true()
-                    
-                    q_extra_literal = []
-                    
-                    for lit in q2.cubeLiterals:
-                        length_before_extend_by_innards = len(q_extra_literal)
-                        if self.internal_connections_implicant.get(lit) != None:
-                            #print("Replacing internal signal...")
-                            self.extend_cube_with_internal_signals(q_extra_literal, lit)
-                            length_after_extend_by_innards = len(q_extra_literal)
-                            if length_after_extend_by_innards == length_before_extend_by_innards:
-                                #print("No internal signal to replace")
-                                continue
-                    q2.cubeLiterals.extend(q_extra_literal)
-                    # q2.cubeLiterals[idx] = innard
-                    # extend the CTIs with internal signals
-                    if self.down(q2):
-                        q2.remove_true()
-                        self.frames[q2.t].block_cex(q2, pushed=False, litOrderManager=self.litOrderManager)
+        elif use_innard and self.internal_signals_mapping is not None: # use innards for enhance generalization
+            # Try replacing the literal with innards
+            extended_q = self.innards_generalizer.extend_lemma_with_innards(q4innards)
+            self.litOrderManager.count(extended_q.cubeLiterals)
+            # if self.down(extended_q):
+            s = self.mic(extended_q, i, d, down=True, use_ctg_down=False, use_innard=False)
+            s.remove_true()
+            self.sanity_checker._debug_cex_is_not_none(s)
+            self.frames[s.t].block_cex(s, pushed=False, litOrderManager=self.litOrderManager)
 
         q.remove_true()
         final_size = q.true_size()
@@ -346,15 +346,15 @@ class PDR:
         self.sum_of_mic_time += time_taken
         return q
     
-    def extend_cube_with_internal_signals(self, q_extra_lit: tCube, lit):
-        # get value of self.internal_connections_implicant[str(lit)]
-        replacement_candidate = self.internal_connections_implicant[lit]
-        # iterate through each tuple, select the one that is not in the cube
-        for replacement in replacement_candidate:
-            extend_lit = random.choice(list(replacement))
-            if extend_lit not in q_extra_lit:
-                q_extra_lit.append(extend_lit)
-        return
+    # def extend_cube_with_internal_signals_mapping(self, q_extra_lit: tCube, lit):
+    #     # get value of self.internal_connections_implicant[str(lit)]
+    #     replacement_candidate = self.internal_connections_implicant[lit]
+    #     # iterate through each tuple, select the one that is not in the cube
+    #     for replacement in replacement_candidate:
+    #         extend_lit = random.choice(list(replacement))
+    #         if extend_lit not in q_extra_lit:
+    #             q_extra_lit.append(extend_lit)
+    #     return
 
     def down(self, q: tCube):
 
@@ -396,7 +396,7 @@ class PDR:
                     tmp_res = self.check_sat(And(self.frames[j].cube(), Not(s.cube()), self.trans.cube(), substitute(substitute(s.cube(), self.primeMap), self.inp_map)), return_res=True)
                     if tmp_res == unsat:
                         break
-                s = self.mic(s, j-1, d+1)
+                s = self.mic(s, j-1, d+1, down=True, use_ctg_down=False, use_innard=False)
                 self.sanity_checker._debug_cex_is_not_none(s)
                 self.frames[j].block_cex(s, pushed=False)
             else:
@@ -413,6 +413,7 @@ class PDR:
 
         l = Or(And(Not(q.cube()), trans, frame), self.initprime)
         self.solver.push()
+        #self.solver.add(self.innards_constraints.cube())
         self.solver.set(unsat_core=True)
         self.solver.add(l)
 
@@ -475,6 +476,7 @@ class PDR:
         self.solver.push()
 
         self.solver.set(unsat_core=True)
+        #self.solver.add(self.innards_constraints.cube())
         for index, literals in enumerate(tcube_cp.cubeLiterals):
             self.solver.assert_and_track(literals,'p'+str(index))
         self.solver.add(Not(nextcube))
