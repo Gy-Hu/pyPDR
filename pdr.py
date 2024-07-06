@@ -40,7 +40,7 @@ class HeuristicLitOrder:
             self.counts[var] = self.counts.get(var, 0) * 0.99
 
 class PDR:
-    def __init__(self, primary_inputs, literals, primes, init, trans, post, pv2next, primes_inp, innards, internal_signals_mapping , filename, debug=False, silent=True):
+    def __init__(self, primary_inputs, literals, primes, init, trans, post, pv2next, primes_inp, innards, internal_signals_mapping , filename, debug=False, silent=False):
         self.console = Console()
         self.enable_assert = True
         self.primary_inputs = primary_inputs
@@ -134,6 +134,21 @@ class PDR:
             return False
 
         return True
+    
+    # logic cone simplify -> z3 hate xx==yy in solver (too many)
+    def filter_trans(self, clauses):
+        filtered_trans = []
+        # get a set of clauses var 
+        var_set = set()
+        for literal in clauses:
+            if literal is True:
+                continue
+            var_set.add(str(literal.children()[0])+'_prime')
+                    
+        for idx, trans_eqn in enumerate(self.trans.cubeLiterals):
+            if str(trans_eqn.children()[0]) in var_set:
+                filtered_trans.append(self.trans.cubeLiterals[idx])
+        return And(filtered_trans)
 
     def run(self):
         if not self.check_init():
@@ -341,8 +356,8 @@ class PDR:
                     continue
                 q1 = q.delete(idx)
                 if self.down(q1):
-                    if q1.check_innards_exist():
-                        pass
+                    # if q1.check_innards_exist():
+                    #     pass
                     q = q1
         elif use_innard and self.internal_signals_mapping is not None: # use innards for enhance generalization
             # Try replacing the literal with innards
@@ -354,8 +369,8 @@ class PDR:
             self.sanity_checker._debug_cex_is_not_none(s)
             self.frames[s.t].block_cex(s, pushed=False, litOrderManager=self.litOrderManager)
 
-        if q.check_innards_exist():
-            pass
+        # if q.check_innards_exist():
+        #     pass
         q.remove_true()
         final_size = q.true_size()
         reduction_percentage = ((initial_size - final_size) / initial_size) * 100 if initial_size > 0 else 0
@@ -378,11 +393,14 @@ class PDR:
 
     def down(self, q: tCube):
         while True:
-            tmp_res = self.check_sat(And(self.frames[0].cube(), q.cube()), return_res=True, add_innards_constraints=True)
+            
+            tmp_res = self.check_sat(And(self.frames[0].cube(), q.cube()), return_res=True, add_innards_constraints=False)
             if tmp_res == sat:
                 return False
 
-            model = self.check_sat(And(self.frames[q.t - 1].cube(), Not(q.cube()), self.trans.cube(), substitute(substitute(q.cube(), self.primeMap), self.inp_map)), return_model=True, add_innards_constraints=True)
+            filter_trans = self.filter_trans(q.cubeLiterals)
+            # replace self.trans.cube() with filtered trans
+            model = self.check_sat(And(self.frames[q.t - 1].cube(), Not(q.cube()), filter_trans, substitute(substitute(q.cube(), self.primeMap), self.inp_map)), return_model=True, add_innards_constraints=False)
             if model is None: # unsat
                 return True
             #q.remove_true()
@@ -430,6 +448,7 @@ class PDR:
         if not self.silent: self.live.update(self.monitor_panel.get_table())
         start_time = time.time()
 
+        #filtered_trans = self.filter_trans(q.cubeLiterals)
         l = Or(And(Not(q.cube()), trans, frame), self.initprime)
         self.solver.push()
         #self.solver.add(self.innards_constraints.cube())

@@ -2,6 +2,12 @@
 
 ![screenshots](figs/iShot_2024-06-02_20.27.51.png)
 
+usage
+
+```
+python run.py xxx.aag
+```
+
 ## Techniques I used
 
 ### Algorithmic

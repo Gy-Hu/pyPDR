@@ -56,7 +56,7 @@ class MonitorPannel:
         table1.add_row("Sum of frame trivially block Time (s)", f"{self.pdr.sum_of_frame_trivially_block_time:.2f}", percentage(self.pdr.sum_of_frame_trivially_block_time))
         table1.add_row("Sum of unsatcore reduce Time (s)", f"{self.pdr.sum_of_unsatcore_reduce_time:.2f}", percentage(self.pdr.sum_of_unsatcore_reduce_time))
 
-        table1.add_row("Overall Runtime (s)", f"{self.pdr.overall_runtime:.2f}", "")
+        table1.add_row("Overall Runtime (s)", f"{self.pdr.overall_runtime:.2f}", "", style="red")
         overall_push_success_rate = (self.pdr.successful_pushes / self.pdr.total_push_attempts * 100) if self.pdr.total_push_attempts > 0 else 0
         table1.add_row("Total Push Attempts", str(self.pdr.total_push_attempts), "")
         table1.add_row("Overall Push Success Rate (%)", f"{overall_push_success_rate:.2f}", "")
