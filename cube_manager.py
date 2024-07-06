@@ -74,7 +74,7 @@ class tCube:
     def true_size(self):
         return len(self.cubeLiterals) - self.cubeLiterals.count(True)
 
-    def join(self, model):
+    def join(self, model): # try to join the model with the cube
         literal_idx_to_remove = set()
         model = {str(var): model[var] for var in model}
         for idx, literal in enumerate(self.cubeLiterals):
@@ -82,7 +82,7 @@ class tCube:
                 continue
             var, val = _extract(literal)
             var = str(var)
-            assert(var[0] == 'v')
+            assert ((var[0] == 'v') or (var[:7] == 'innards'))
             if var not in model:
                 literal_idx_to_remove.add(idx)
                 continue
@@ -93,6 +93,28 @@ class tCube:
         for idx in literal_idx_to_remove:
             self.cubeLiterals[idx] = True
         return len(literal_idx_to_remove) != 0
+    
+    def check_innards_exist(self):
+        for idx, literal in enumerate(self.cubeLiterals):
+            if literal is True:
+                continue
+            var, val = _extract(literal)
+            var = str(var)
+            if var[:7] == 'innards':
+                return True
+            
+    def only_innards_exist(self):
+        ExistsInnards = False
+        for idx, literal in enumerate(self.cubeLiterals):
+            if literal is True:
+                continue
+            var, val = _extract(literal)
+            var = str(var)
+            if var[:7] != 'innards':
+                return False
+            else:
+                ExistsInnards = True
+        return ExistsInnards
 
     def delete(self, i: int):
         res = tCube(self.t)

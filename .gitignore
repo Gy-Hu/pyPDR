@@ -11,3 +11,5 @@ run.spec
 run.c
 run
 ask_LLM.sh
+tmp.cp
+deprecated/tmp.txt

@@ -15,6 +15,7 @@ from rich.panel import Panel
 import random
 from pprint import pprint
 import math
+import re
 
 #logging.basicConfig(filename='pdr.log', level=logging.INFO, format='%(message)s')
 
@@ -39,7 +40,7 @@ class HeuristicLitOrder:
             self.counts[var] = self.counts.get(var, 0) * 0.99
 
 class PDR:
-    def __init__(self, primary_inputs, literals, primes, init, trans, post, pv2next, primes_inp, innards, internal_signals_mapping , filename, debug=False, silent=False):
+    def __init__(self, primary_inputs, literals, primes, init, trans, post, pv2next, primes_inp, innards, internal_signals_mapping , filename, debug=False, silent=True):
         self.console = Console()
         self.enable_assert = True
         self.primary_inputs = primary_inputs
@@ -98,13 +99,14 @@ class PDR:
         self.innards_constraints.addAnds([Bool(var) == val for var, val in self.internal_signals_mapping.items()])
         self.live = Live(self.monitor_panel.get_table(), console=self.console, screen=True, refresh_per_second=2)
         
-    def check_sat(self, assumptions, return_model=False, return_res=False):
+    def check_sat(self, assumptions, return_model=False, return_res=False, add_innards_constraints=False):
         self.status = "CHECKING SAT"
         self.live.update(self.monitor_panel.get_table())
         #self.solver = Solver() # test inc-sat effect (how much impact on the performance?)
         self.solver.push()
         self.solver.add(assumptions)
-        #self.solver.add(self.innards_constraints.cube())
+        if add_innards_constraints:
+            self.solver.add(self.innards_constraints.cube())
         res = self.solver.check()
         self.sum_of_sat_call += 1
 
@@ -192,6 +194,16 @@ class PDR:
                         inv = self.checkForInduction()
                         if inv is not None:
                             print("FOUND INV")
+                            for idx, c in enumerate(self.frames[len(self.frames)-1].Lemma):
+                                if 'i' in str(c):
+                                    pattern =r'(innards+)'
+                                    if not re.search(pattern, str(c)):
+                                        print('C', idx, ':', 'property')
+                                    else:
+                                        print('C', idx, ':', str(c))
+                                else:
+                                    print('C', idx, ':', str(c))
+                            
                             break
 
                         self.frames.append(Frame(lemmas=[]))
@@ -298,13 +310,14 @@ class PDR:
             self.cti_queue_sizes.append(Q.qsize()) 
         return None
     
-    def mic(self, q: tCube, i: int, d: int = 1, down=True, use_ctg_down=False, use_innard=False):
+    def mic(self, q: tCube, i: int, d: int = 1, down=True, use_ctg_down=False, use_innard=False, unsat_core_reduce_preprocess=True):
         self.status = "INDUCTIVE GENERALIZATION" 
         if not self.silent: self.live.update(self.monitor_panel.get_table())
         start_time = time.time()
         initial_size = q.true_size()
-        self.unsatcore_reduce(q, trans=self.trans.cube(), frame=self.frames[q.t - 1].cube())
-        q.remove_true()
+        if unsat_core_reduce_preprocess:
+            self.unsatcore_reduce(q, trans=self.trans.cube(), frame=self.frames[q.t - 1].cube())
+            q.remove_true()
         q4innards = q.clone()
         
         if use_ctg_down:
@@ -323,19 +336,26 @@ class PDR:
             for idx in range(len(q.cubeLiterals)):
                 if q.cubeLiterals[idx] is True:
                     continue
+                # if this is innards, skip
+                if str(q.cubeLiterals[idx].children()[0])[:7] == 'innards':
+                    continue
                 q1 = q.delete(idx)
                 if self.down(q1):
+                    if q1.check_innards_exist():
+                        pass
                     q = q1
         elif use_innard and self.internal_signals_mapping is not None: # use innards for enhance generalization
             # Try replacing the literal with innards
             extended_q = self.innards_generalizer.extend_lemma_with_innards(q4innards)
             self.litOrderManager.count(extended_q.cubeLiterals)
             # if self.down(extended_q):
-            s = self.mic(extended_q, i, d, down=True, use_ctg_down=False, use_innard=False)
+            s = self.mic(extended_q, i, d, down=True, use_ctg_down=False, use_innard=False, unsat_core_reduce_preprocess=False)
             s.remove_true()
             self.sanity_checker._debug_cex_is_not_none(s)
             self.frames[s.t].block_cex(s, pushed=False, litOrderManager=self.litOrderManager)
 
+        if q.check_innards_exist():
+            pass
         q.remove_true()
         final_size = q.true_size()
         reduction_percentage = ((initial_size - final_size) / initial_size) * 100 if initial_size > 0 else 0
@@ -357,13 +377,12 @@ class PDR:
     #     return
 
     def down(self, q: tCube):
-
         while True:
-            tmp_res = self.check_sat(And(self.frames[0].cube(), q.cube()), return_res=True)
+            tmp_res = self.check_sat(And(self.frames[0].cube(), q.cube()), return_res=True, add_innards_constraints=True)
             if tmp_res == sat:
                 return False
 
-            model = self.check_sat(And(self.frames[q.t - 1].cube(), Not(q.cube()), self.trans.cube(), substitute(substitute(q.cube(), self.primeMap), self.inp_map)), return_model=True)
+            model = self.check_sat(And(self.frames[q.t - 1].cube(), Not(q.cube()), self.trans.cube(), substitute(substitute(q.cube(), self.primeMap), self.inp_map)), return_model=True, add_innards_constraints=True)
             if model is None: # unsat
                 return True
             #q.remove_true()

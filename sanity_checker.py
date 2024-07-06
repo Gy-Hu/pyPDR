@@ -13,7 +13,11 @@ class SanityChecker:
             if skip_pushed and self.pdr.frames[fidx].pushed[idx]:
                 continue
             if 'i' in str(c):
-                print('C', idx, ':', 'property')
+                pattern =r'(innards+)'
+                if not re.search(pattern, str(c)):
+                    print('C', idx, ':', 'property')
+                else:
+                    print('C', idx, ':', str(c))
             else:
                 print('C', idx, ':', str(c))
 
